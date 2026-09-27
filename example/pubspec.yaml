@@ -1,0 +1,22 @@
+name: flutter_amll_example
+description: Demo app for the flutter_amll lyrics package.
+publish_to: 'none'
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_amll:
+    path: ../
+  m3e_core: ^1.1.4
+  material_ui: ^1.3.0
+  shared_preferences: ^2.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

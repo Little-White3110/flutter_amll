@@ -3,7 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../storage/lyric_preferences_backend.dart';
 
 /// 歌词字体来源枚举（与全局 [FontSource] 解耦，允许歌词使用与 UI 不同的字体）。
 ///
@@ -27,7 +28,8 @@ enum LyricDisplayMode { translation, roma }
 /// 提供全局静态访问 + ChangeNotifier 通知，供 AppleLyricsView、
 /// 设置页滑块、长按菜单共同读写。
 ///
-/// 偏好通过 SharedPreferences 持久化。
+/// 偏好通过 [LyricPreferencesBackend]（[backend]）持久化，默认内存实现；
+/// 宿主可注入自有后端以落盘。
 ///
 /// 字号范围：[minFontSize] ~ [maxFontSize]，默认 [defaultFontSize]。
 /// 行间距系数范围：[minLineSpacing] ~ [maxLineSpacing]，默认 [defaultLineSpacing]。
@@ -39,6 +41,14 @@ enum LyricDisplayMode { translation, roma }
 class LyricPreferences extends ChangeNotifier {
   LyricPreferences._();
   static final LyricPreferences instance = LyricPreferences._();
+
+  /// 持久化后端。默认内存实现（读写仅在当前进程有效，不落盘）。
+  ///
+  /// 宿主 app 启动时注入 [SharedPrefsLyricPreferencesBackend] 即可持久化：
+  /// ```dart
+  /// LyricPreferences.backend = SharedPrefsLyricPreferencesBackend(prefs);
+  /// ```
+  static LyricPreferencesBackend backend = MemoryLyricPreferencesBackend();
 
   /// 歌词自定义字体注册到 Flutter 的 family 名（固定）
   static const String lyricCustomFontFamily = 'LyricUserCustomFont';
@@ -216,7 +226,7 @@ class LyricPreferences extends ChangeNotifier {
     return size.shortestSide >= 600;
   }
 
-  // ============== SharedPreferences keys ==============
+  // ============== 持久化 keys ==============
 
   static const String _keyFontSize = 'lyric_font_size';
   static const String _keyLineSpacing = 'lyric_line_spacing';
@@ -372,53 +382,52 @@ class LyricPreferences extends ChangeNotifier {
   double get lineHeightMultiplier =>
       (_fontSize / defaultFontSize) * _lineSpacing;
 
-  /// 从 SharedPreferences 加载。App 启动时调用一次。
+  /// 从 [backend] 加载。App 启动时调用一次。
   Future<void> load() async {
     if (_loaded) return;
-    final prefs = await SharedPreferences.getInstance();
     // 首次使用（key 不存在）时按设备类型提供差异化默认：
     // 手机 29px/半粗(600)/1.4x；Pad 40px/黑体(900)/0.9x。
     // 用户后续手动调整后会持久化，届时尊重用户设置。
-    _fontSize = prefs.getDouble(_keyFontSize) ?? _deviceDefaultFontSize;
-    _lineSpacing = prefs.getDouble(_keyLineSpacing) ?? _deviceDefaultLineSpacing;
+    _fontSize = backend.getDouble(_keyFontSize) ?? _deviceDefaultFontSize;
+    _lineSpacing = backend.getDouble(_keyLineSpacing) ?? _deviceDefaultLineSpacing;
     _fontWeight =
-        (prefs.getInt(_keyFontWeight) ?? _deviceDefaultFontWeight)
+        (backend.getInt(_keyFontWeight) ?? _deviceDefaultFontWeight)
             .clamp(minFontWeight, maxFontWeight);
-    _useGaussianBlur = prefs.getBool(_keyUseGaussianBlur) ?? false;
+    _useGaussianBlur = backend.getBool(_keyUseGaussianBlur) ?? false;
     _blurIntensity =
-        (prefs.getDouble(_keyBlurIntensity) ?? defaultBlurIntensity)
+        (backend.getDouble(_keyBlurIntensity) ?? defaultBlurIntensity)
             .clamp(minBlurIntensity, maxBlurIntensity);
-    _useGlowEffect = prefs.getBool(_keyUseGlowEffect) ?? true;
-    _useFlowingBackground = prefs.getBool(_keyUseFlowingBackground) ?? false;
-    _useDuetLayout = prefs.getBool(_keyUseDuetLayout) ?? false;
-    _showTranslation = prefs.getBool(_keyShowTranslation) ?? true;
-    _displayMode = _displayModeFromName(prefs.getString(_keyDisplayMode));
-    _fontSource = _fontSourceFromName(prefs.getString(_keyFontSource));
-    _customFontPath = prefs.getString(_keyCustomFontPath);
-    _ecoMode = prefs.getBool(_keyEcoMode) ?? true;
-    _useDynamicLyricColor = prefs.getBool(_keyUseDynamicLyricColor) ?? true;
+    _useGlowEffect = backend.getBool(_keyUseGlowEffect) ?? true;
+    _useFlowingBackground = backend.getBool(_keyUseFlowingBackground) ?? false;
+    _useDuetLayout = backend.getBool(_keyUseDuetLayout) ?? false;
+    _showTranslation = backend.getBool(_keyShowTranslation) ?? true;
+    _displayMode = _displayModeFromName(backend.getString(_keyDisplayMode));
+    _fontSource = _fontSourceFromName(backend.getString(_keyFontSource));
+    _customFontPath = backend.getString(_keyCustomFontPath);
+    _ecoMode = backend.getBool(_keyEcoMode) ?? true;
+    _useDynamicLyricColor = backend.getBool(_keyUseDynamicLyricColor) ?? true;
     _glowThresholdFactor =
-        (prefs.getDouble(_keyGlowThresholdFactor) ?? defaultGlowThresholdFactor)
+        (backend.getDouble(_keyGlowThresholdFactor) ?? defaultGlowThresholdFactor)
             .clamp(minGlowThresholdFactor, maxGlowThresholdFactor);
-    _inactiveScale = (prefs.getDouble(_keyInactiveScale) ?? defaultInactiveScale)
+    _inactiveScale = (backend.getDouble(_keyInactiveScale) ?? defaultInactiveScale)
         .clamp(minInactiveScale, maxInactiveScale);
     _alignPosition =
-        (prefs.getDouble(_keyAlignPosition) ?? defaultAlignPosition)
+        (backend.getDouble(_keyAlignPosition) ?? defaultAlignPosition)
             .clamp(minAlignPosition, maxAlignPosition);
     _cascadeMaxDelayMs =
-        (prefs.getDouble(_keyCascadeMaxDelayMs) ?? defaultCascadeMaxDelayMs)
+        (backend.getDouble(_keyCascadeMaxDelayMs) ?? defaultCascadeMaxDelayMs)
             .clamp(minCascadeMaxDelayMs, maxCascadeMaxDelayMs);
     _cascadeBaseStepMs =
-        (prefs.getDouble(_keyCascadeBaseStepMs) ?? defaultCascadeBaseStepMs)
+        (backend.getDouble(_keyCascadeBaseStepMs) ?? defaultCascadeBaseStepMs)
             .clamp(minCascadeBaseStepMs, maxCascadeBaseStepMs);
     _cascadeDecayX =
-        (prefs.getDouble(_keyCascadeDecayX) ?? defaultCascadeDecayX)
+        (backend.getDouble(_keyCascadeDecayX) ?? defaultCascadeDecayX)
             .clamp(minCascadeDecayX, maxCascadeDecayX);
     _liftHeightPx =
-        (prefs.getDouble(_keyLiftHeightPx) ?? defaultLiftHeightPx)
+        (backend.getDouble(_keyLiftHeightPx) ?? defaultLiftHeightPx)
             .clamp(minLiftHeightPx, maxLiftHeightPx);
     _staggerFromCurrentLine =
-        prefs.getBool(_keyStaggerFromCurrentLine) ??
+        backend.getBool(_keyStaggerFromCurrentLine) ??
             defaultStaggerFromCurrentLine;
     _loaded = true;
     notifyListeners();
@@ -434,8 +443,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _fontSize) return;
     _fontSize = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyFontSize, _fontSize);
+    await backend.setDouble(_keyFontSize, _fontSize);
   }
 
   /// 设置行间距系数并持久化。
@@ -444,8 +452,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _lineSpacing) return;
     _lineSpacing = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyLineSpacing, _lineSpacing);
+    await backend.setDouble(_keyLineSpacing, _lineSpacing);
   }
 
   /// 设置字重并持久化。会触发 [notifyListeners]。
@@ -454,8 +461,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _fontWeight) return;
     _fontWeight = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyFontWeight, _fontWeight);
+    await backend.setInt(_keyFontWeight, _fontWeight);
   }
 
   /// 设置高斯模糊开关并持久化。
@@ -463,8 +469,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_useGaussianBlur == enabled) return;
     _useGaussianBlur = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyUseGaussianBlur, enabled);
+    await backend.setBool(_keyUseGaussianBlur, enabled);
   }
 
   /// 设置歌词模糊强度倍数并持久化。
@@ -473,8 +478,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _blurIntensity) return;
     _blurIntensity = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyBlurIntensity, _blurIntensity);
+    await backend.setDouble(_keyBlurIntensity, _blurIntensity);
   }
 
   /// 设置辉光效果开关并持久化。
@@ -482,8 +486,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_useGlowEffect == enabled) return;
     _useGlowEffect = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyUseGlowEffect, enabled);
+    await backend.setBool(_keyUseGlowEffect, enabled);
   }
 
   /// 设置动态流光背景开关并持久化。
@@ -491,8 +494,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_useFlowingBackground == enabled) return;
     _useFlowingBackground = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyUseFlowingBackground, enabled);
+    await backend.setBool(_keyUseFlowingBackground, enabled);
   }
 
   /// 设置男女对唱歌词优化开关并持久化。
@@ -500,8 +502,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_useDuetLayout == enabled) return;
     _useDuetLayout = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyUseDuetLayout, enabled);
+    await backend.setBool(_keyUseDuetLayout, enabled);
   }
 
   /// 设置歌词省电模式开关并持久化。
@@ -510,8 +511,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_ecoMode == enabled) return;
     _ecoMode = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyEcoMode, enabled);
+    await backend.setBool(_keyEcoMode, enabled);
   }
 
   /// 设置歌词动态字体颜色开关并持久化。
@@ -520,8 +520,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_useDynamicLyricColor == enabled) return;
     _useDynamicLyricColor = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyUseDynamicLyricColor, enabled);
+    await backend.setBool(_keyUseDynamicLyricColor, enabled);
   }
 
   /// 设置辉光触发阈值系数并持久化。
@@ -535,8 +534,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _glowThresholdFactor) return;
     _glowThresholdFactor = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyGlowThresholdFactor, _glowThresholdFactor);
+    await backend.setDouble(_keyGlowThresholdFactor, _glowThresholdFactor);
   }
 
   /// 设置非当前行缩放并持久化。
@@ -548,8 +546,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _inactiveScale) return;
     _inactiveScale = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyInactiveScale, _inactiveScale);
+    await backend.setDouble(_keyInactiveScale, _inactiveScale);
   }
 
   /// 设置当前行垂直锚位并持久化。
@@ -561,8 +558,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _alignPosition) return;
     _alignPosition = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyAlignPosition, _alignPosition);
+    await backend.setDouble(_keyAlignPosition, _alignPosition);
   }
 
   /// 设置级联错峰最大延迟并持久化。
@@ -571,8 +567,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _cascadeMaxDelayMs) return;
     _cascadeMaxDelayMs = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyCascadeMaxDelayMs, _cascadeMaxDelayMs);
+    await backend.setDouble(_keyCascadeMaxDelayMs, _cascadeMaxDelayMs);
   }
 
   /// 设置级联错峰步长并持久化。
@@ -581,8 +576,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _cascadeBaseStepMs) return;
     _cascadeBaseStepMs = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyCascadeBaseStepMs, _cascadeBaseStepMs);
+    await backend.setDouble(_keyCascadeBaseStepMs, _cascadeBaseStepMs);
   }
 
   /// 设置级联衰减分母（x in 1/x）并持久化。
@@ -591,8 +585,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _cascadeDecayX) return;
     _cascadeDecayX = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyCascadeDecayX, _cascadeDecayX);
+    await backend.setDouble(_keyCascadeDecayX, _cascadeDecayX);
   }
 
   /// 设置已播字上浮高度（px）并持久化。
@@ -601,8 +594,7 @@ class LyricPreferences extends ChangeNotifier {
     if (clamped == _liftHeightPx) return;
     _liftHeightPx = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyLiftHeightPx, _liftHeightPx);
+    await backend.setDouble(_keyLiftHeightPx, _liftHeightPx);
   }
 
   /// 设置级联错峰起点（从当前行开始）并持久化。
@@ -610,8 +602,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_staggerFromCurrentLine == enabled) return;
     _staggerFromCurrentLine = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyStaggerFromCurrentLine, enabled);
+    await backend.setBool(_keyStaggerFromCurrentLine, enabled);
   }
 
   /// 设置歌词翻译副行显示开关并持久化。
@@ -619,8 +610,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_showTranslation == enabled) return;
     _showTranslation = enabled;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyShowTranslation, enabled);
+    await backend.setBool(_keyShowTranslation, enabled);
   }
 
   /// 设置辅助行显示模式（翻译/罗马音）并持久化。
@@ -628,8 +618,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_displayMode == mode) return;
     _displayMode = mode;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyDisplayMode, mode.name);
+    await backend.setString(_keyDisplayMode, mode.name);
   }
 
   // ============== 歌词字体来源 ==============
@@ -639,8 +628,7 @@ class LyricPreferences extends ChangeNotifier {
     if (_fontSource == source) return;
     _fontSource = source;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyFontSource, source.name);
+    await backend.setString(_keyFontSource, source.name);
   }
 
   /// 设置自定义字体文件路径并立即尝试加载注册。
@@ -648,12 +636,11 @@ class LyricPreferences extends ChangeNotifier {
   Future<void> setCustomFontPath(String? path) async {
     if (_customFontPath == path) return;
     _customFontPath = path;
-    final prefs = await SharedPreferences.getInstance();
     if (path != null) {
-      await prefs.setString(_keyCustomFontPath, path);
+      await backend.setString(_keyCustomFontPath, path);
       await _tryLoadCustomFont();
     } else {
-      await prefs.remove(_keyCustomFontPath);
+      await backend.remove(_keyCustomFontPath);
       _loadedCustomFontFamily = null;
       notifyListeners();
     }
@@ -735,28 +722,27 @@ class LyricPreferences extends ChangeNotifier {
     _liftHeightPx = defaultLiftHeightPx;
     _staggerFromCurrentLine = defaultStaggerFromCurrentLine;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyFontSize, _fontSize);
-    await prefs.setDouble(_keyLineSpacing, _lineSpacing);
-    await prefs.setInt(_keyFontWeight, _fontWeight);
-    await prefs.setBool(_keyUseGaussianBlur, _useGaussianBlur);
-    await prefs.remove(_keyBlurIntensity);
-    await prefs.setBool(_keyUseGlowEffect, _useGlowEffect);
-    await prefs.setBool(_keyUseFlowingBackground, _useFlowingBackground);
-    await prefs.setBool(_keyUseDuetLayout, _useDuetLayout);
-    await prefs.setBool(_keyShowTranslation, _showTranslation);
-    await prefs.setString(_keyDisplayMode, _displayMode.name);
-    await prefs.remove(_keyEcoMode);
-    await prefs.remove(_keyUseDynamicLyricColor);
-    await prefs.remove(_keyGlowThresholdFactor);
-    await prefs.remove(_keyInactiveScale);
-    await prefs.remove(_keyAlignPosition);
-    await prefs.remove(_keyCascadeMaxDelayMs);
-    await prefs.remove(_keyCascadeBaseStepMs);
-    await prefs.remove(_keyCascadeDecayX);
-    await prefs.remove(_keyLiftHeightPx);
-    await prefs.remove(_keyStaggerFromCurrentLine);
-    await prefs.remove(_keyFontSource);
-    await prefs.remove(_keyCustomFontPath);
+    await backend.setDouble(_keyFontSize, _fontSize);
+    await backend.setDouble(_keyLineSpacing, _lineSpacing);
+    await backend.setInt(_keyFontWeight, _fontWeight);
+    await backend.setBool(_keyUseGaussianBlur, _useGaussianBlur);
+    await backend.remove(_keyBlurIntensity);
+    await backend.setBool(_keyUseGlowEffect, _useGlowEffect);
+    await backend.setBool(_keyUseFlowingBackground, _useFlowingBackground);
+    await backend.setBool(_keyUseDuetLayout, _useDuetLayout);
+    await backend.setBool(_keyShowTranslation, _showTranslation);
+    await backend.setString(_keyDisplayMode, _displayMode.name);
+    await backend.remove(_keyEcoMode);
+    await backend.remove(_keyUseDynamicLyricColor);
+    await backend.remove(_keyGlowThresholdFactor);
+    await backend.remove(_keyInactiveScale);
+    await backend.remove(_keyAlignPosition);
+    await backend.remove(_keyCascadeMaxDelayMs);
+    await backend.remove(_keyCascadeBaseStepMs);
+    await backend.remove(_keyCascadeDecayX);
+    await backend.remove(_keyLiftHeightPx);
+    await backend.remove(_keyStaggerFromCurrentLine);
+    await backend.remove(_keyFontSource);
+    await backend.remove(_keyCustomFontPath);
   }
 }

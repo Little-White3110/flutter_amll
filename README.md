@@ -2,9 +2,11 @@
 
 Apple Music 风格（AMLL）逐字歌词渲染组件库 —— 自 `md3music` 的 AM 风格播放页完整抽取，保留全部渲染优化与可调节选项，且不依赖任何宿主业务代码。
 
-> **当前状态**：抽取方案已定稿（[`docs/superpowers/plans/2026-09-28-amll-lyrics-extraction.md`](docs/superpowers/plans/2026-09-28-amll-lyrics-extraction.md)），源码迁移按方案 Task 1–10 执行中。本文档描述包的最终形态与使用契约。
+> **当前状态**：抽取已完成。19 个源文件 + 4 个平台注入点 + 1 个存储后端迁入 `lib/src/`，22 个测试全部通过（402/402），`flutter analyze` 全仓库 `No issues found!`。
 >
-> **源仓库**：`private_md3music@rust-local-two`（v5.7.0+45）的 `lib/widgets/apple_lyrics/**` —— 20 个源文件 / 11,479 行，外加 `test/widgets/apple_lyrics/**` 22 个测试。**抽取过程对源仓库只读，不做任何修改。**
+> **源仓库**：`private_md3music@rust-local-two`（v5.7.0+45）的 `lib/widgets/apple_lyrics/**` —— 20 个源文件 / 11,479 行，外加 `test/widgets/apple_lyrics/**` 22 个测试。**抽取过程对源仓库只读，未做任何修改。**方案与逐 Task 记录见 [`docs/superpowers/plans/2026-09-28-amll-lyrics-extraction.md`](docs/superpowers/plans/2026-09-28-amll-lyrics-extraction.md)。
+>
+> **迁移原则**：零逻辑改动。除 import 路径、4 个宿主平台服务降级为注入点、偏好存储收口为可注入后端外，渲染/动画/解析代码逐行保持原样。
 
 ---
 
@@ -23,7 +25,7 @@ flutter_amll/
 │       ├── parsers/               # krc / lrc / ttml / plaintext + lyric_parser_chain
 │       ├── renderers/             # word_renderer / line_renderer / emphasize_effect / interlude_dots
 │       ├── utils/lyric_position.dart
-│       ├── platform/              # frame_driver / haptics / font_loader（宿主可注入）
+│       ├── platform/              # frame_driver / haptics / font_loader / toast（4 个宿主注入点）
 │       └── storage/lyric_preferences_backend.dart
 ├── example/                       # demo app：歌词预览调试页
 └── test/                          # 22 个测试（与源仓库一一对应）
@@ -105,9 +107,8 @@ AppleLyricsView(
 | `Spring` | 弹簧动画引擎 |
 | `LyricScrollController` / `LineScaleController` | 滚动与逐行缩放弹簧控制器 |
 | `AmllFrameDriver` | 60fps 共享帧驱动（eco 限帧） |
-| `AmllHaptics` | 触觉反馈注入点 |
-| `AmllFontLoader` | 自定义字体加载 / 字体选择注入点 |
-| `LyricPreferencesBackend` | 偏好持久化后端接口 |
+| `AmllHaptics` / `AmllToast` / `AmllFontLoader` | 触觉 / 轻提示 / 字体选择三个宿主注入点 |
+| `LyricPreferencesBackend` | 偏好持久化后端接口 + 内存 / SharedPreferences 两种实现 |
 | `adjustLyricPosition` | 播放位置 → 歌词位置的时间偏移映射 |
 
 `renderers/*` 为内部实现，不对外导出；测试与自定义扩展可直接 `import 'package:flutter_amll/src/renderers/word_renderer.dart';`。
@@ -188,15 +189,22 @@ AppleLyricsView(
 包内不含任何业务耦合，宿主通过三个注入点接回自有能力：
 
 ```dart
-// 1. 偏好持久化（默认 no-op，必须注入，否则设置不落盘）
+// 1. 偏好持久化（默认是内存后端，不注入就不会落盘，且静默无提示）
 LyricPreferences.backend = SharedPrefsLyricPreferencesBackend(prefs);
 
-// 2. 触觉反馈（默认 HapticFeedback；md3music 走原生 VibratorManager）
+// 2. 触觉反馈（默认 HapticFeedback.selectionClick；md3music 走原生 VibratorManager）
 AmllHaptics.tick = AppHaptics.tick;
 
-// 3. 字体文件选择（依赖原生 SAF 通道，包内默认返回 null）
+// 3. 轻提示（默认空操作；md3music 走 fluttertoast）
+AmllToast.show = (msg, {long = false}) => showToast(msg, long: long);
+
+// 4. 字体文件选择（依赖原生 SAF 通道，包内无法提供，默认返回 null）
 AmllFontLoader.pickFontFile = CustomFontLoader.pickFontFile;
 ```
+
+> 四个注入点的默认值都是"安全但不完整"的实现：偏好不落盘、触觉走 Flutter 内置、
+> Toast 静默、字体选择返回 null。**宿主不注入不会崩溃，但对应能力不会生效**，
+> 接入时请按上面四行逐一接回自有实现。
 
 `md3music` 回接时，`full_player_am.dart` 的歌词区可替换为：
 
@@ -242,11 +250,15 @@ cd example && flutter pub get && flutter run
 
 ```bash
 flutter pub get
-flutter analyze          # 期望 No issues found!
-flutter test             # 22 个测试文件全绿
+flutter analyze          # No issues found!
+flutter test             # 402 / 402 passed
+cd example && flutter pub get && flutter analyze   # No issues found!
 ```
 
 测试覆盖：弹簧求解、逐字/整行渲染器、辉光强调、间奏点、四种解析器、布局（副行翻转 / inactiveScale / 模糊强度）、滚动控制器、偏好细节参数、位置解耦。
+
+测试侧已与 `shared_preferences` 完全解耦：统一在 `setUp` 中调用 `LyricPreferences.resetForTest()`
+并注入 `MemoryLyricPreferencesBackend`，通过 `values` 快照断言落盘内容。
 
 ---
 
@@ -256,6 +268,10 @@ flutter test             # 22 个测试文件全绿
 - 不含播放器页面本身（`full_player_am.dart`）、评论、封面、频谱等宿主 UI
 - 不含网络取词与本地歌词读取——解析输入由调用方提供
 - 迁移期不做视觉/逻辑重构、不重命名字段、不变更默认值与持久化 key
+- 源码中保留了源仓库的两处既有写法以保持行为不变：`TickerMode.of`（Flutter 3.35 后废弃，
+  替代 API `valuesOf` 返回 record、语义不同，暂不迁移）与 `_tryLoadCustomFont` 内的 `print`
+  调试输出；两者以行内 `ignore` 注释消除 analyzer 告警，未改调用方式
+- 使用 `dart:io`（自定义字体文件读取），因此不支持 Web 平台
 
 ## License
 

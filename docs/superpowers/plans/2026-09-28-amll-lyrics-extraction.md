@@ -47,7 +47,7 @@
 | `../../core/services/player_frame_driver.dart`（`PlayerFrameDriver.instance/step`，5 处） | `apple_lyrics_view.dart` | 内置副本 `src/platform/frame_driver.dart`，类名 `AmllFrameDriver` |
 | `../../core/utils/app_haptics.dart`（`AppHaptics.tick()`，1 处 @2169） | `apple_lyrics_view.dart` | 内置 `src/platform/haptics.dart`，类名 `AmllHaptics`，默认走 `HapticFeedback.selectionClick`，允许宿主覆写 |
 | `../../../core/services/custom_font_loader.dart`（`CustomFontLoader.pickFontFile()` @207 + `loadIfAvailable`） | `layout/lyric_preferences_panel.dart`、`layout/lyric_preferences.dart` | 内置 `src/platform/font_loader.dart`，类名 `AmllFontLoader`；`pickFontFile` 改为可注入回调（默认返回 null，宿主注入原生 SAF 选择） |
-| `../../../core/utils/app_toast.dart` | `lyric_preferences_panel.dart:5` | **仅 import、无调用** → 删除该 import |
+| `../../../core/utils/app_toast.dart` | `lyric_preferences_panel.dart:5` | ⚠️ 该文件是**顶层函数** `showToast(msg, {long})`（非类，依赖 `fluttertoast`），被面板 **210、219 行**实际调用 → 新增 `src/platform/toast.dart`（`AmllToast.show` 注入点，默认空操作），2 个调用点改为 `AmllToast.show(...)`。**原方案误判为"未使用 import、直接删除"，已修正** |
 | `package:material_ui/material_ui.dart` | `apple_lyrics_view.dart:20`（无符号引用）、`lyric_preferences_panel.dart:1`、`preview` | 保留 pub 依赖；`apple_lyrics_view.dart` 若 `flutter analyze` 报 unused_import 则删除该行 |
 | `package:m3e_core/m3e_core.dart` | `lyric_preferences_panel.dart:2`（`M3ESlider` ×3）、`preview`（`showM3EModalBottomSheet`） | 保留 pub 依赖（面板 UI 与预览页依赖） |
 | `package:shared_preferences` | `lyric_preferences.dart` | 收口到 `src/storage/lyric_preferences_backend.dart`，默认实现同名 key |
@@ -330,14 +330,16 @@ sed -i \
   "$DST/lib/src/apple_lyrics_view.dart"
 ```
 
-`lib/src/layout/lyric_preferences_panel.dart`：
-```bash
-sed -i \
-  -e "s#import '../../../core/services/custom_font_loader.dart';#import '../platform/font_loader.dart';#" \
-  -e "/import '..\/..\/..\/core\/utils\/app_toast.dart';/d" \
-  -e "s#CustomFontLoader\.#AmllFontLoader.#g" \
-  "$DST/lib/src/layout/lyric_preferences_panel.dart"
-```
+`lib/src/layout/lyric_preferences_panel.dart`（**用 Edit 精确改，不要用 `sed -i`**，
+`sed -i` 会重写整个文件并归一化行尾，T2 已在 `spring.dart` 上留下非预期差异）：
+- 第 4 行 `import '../../../core/services/custom_font_loader.dart';` → `import '../platform/font_loader.dart';`
+- 第 5 行 `import '../../../core/utils/app_toast.dart';` → `import '../platform/toast.dart';`
+- 第 207 行 `CustomFontLoader.pickFontFile()` → `AmllFontLoader.pickFontFile()`
+- 第 210、219 行 `showToast(...)` → `AmllToast.show(...)`
+
+**因此 T3 实际新增 4 个 platform 文件**（原计划 3 个）：`frame_driver.dart`、
+`haptics.dart`、`font_loader.dart`、`toast.dart`。`frame_driver.dart` 还需
+`import 'package:flutter/foundation.dart';`（用到 `VoidCallback`）。
 
 - [ ] **Step 5: 验证**
 

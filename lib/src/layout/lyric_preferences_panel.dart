@@ -1,8 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
-import '../../../core/services/custom_font_loader.dart';
-import '../../../core/utils/app_toast.dart';
+import '../platform/font_loader.dart';
+import '../platform/toast.dart';
 import 'lyric_preferences.dart';
 
 /// 歌词字号/行间距/字体调节面板。
@@ -204,11 +204,11 @@ class LyricPreferencesPanel extends StatelessWidget {
     BuildContext context,
     LyricPreferences prefs,
   ) async {
-    final path = await CustomFontLoader.pickFontFile();
+    final path = await AmllFontLoader.pickFontFile();
     if (path == null) {
       // 用户取消
       if (!context.mounted) return;
-      showToast('未选择字体文件', long: true);
+      AmllToast.show('未选择字体文件', long: true);
       return;
     }
     // 先保存路径并加载字体（_tryLoadCustomFont 内部会注册 FontLoader）
@@ -217,6 +217,9 @@ class LyricPreferencesPanel extends StatelessWidget {
     await prefs.setFontSource(LyricFontSource.custom);
     if (!context.mounted) return;
     final loaded = prefs.effectiveFontFamily != null;
-    showToast(loaded ? '已应用自定义字体到歌词' : '字体加载失败，已降级为系统字体', long: true);
+    AmllToast.show(
+      loaded ? '已应用自定义字体到歌词' : '字体加载失败，已降级为系统字体',
+      long: true,
+    );
   }
 }

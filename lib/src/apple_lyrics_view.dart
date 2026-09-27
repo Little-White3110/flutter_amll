@@ -20,10 +20,10 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../core/utils/app_haptics.dart';
+import 'platform/haptics.dart';
 import 'package:flutter/widgets.dart';
 
-import '../../core/services/player_frame_driver.dart';
+import 'platform/frame_driver.dart';
 import 'controllers/lyric_scroll_controller.dart';
 import 'animation/spring.dart';
 import 'layout/duet_layout.dart';
@@ -288,7 +288,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
 
   /// eco 锁定时是否挂在共享 60fps 帧驱动上（真正的帧率限制驱动源）。
   ///
-  /// 与封面旋转/频谱共用 [PlayerFrameDriver] 的同一节拍：两者独立起 16ms
+  /// 与封面旋转/频谱共用 [AmllFrameDriver] 的同一节拍：两者独立起 16ms
   /// Timer 时相位错开，会让 120Hz 屏整页跑到 ~120fps（功耗翻倍）。
   bool _ecoDriverBound = false;
 
@@ -945,7 +945,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
     if (_lifecycleSuspended || _tickerModeMuted) {
       _resumeGapPending = true;
       if (_ecoDriverBound) {
-        PlayerFrameDriver.instance.removeListener(_onEcoFrameTick);
+        AmllFrameDriver.instance.removeListener(_onEcoFrameTick);
         _ecoDriverBound = false;
       }
       return;
@@ -958,12 +958,12 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
       if (!_ecoDriverBound) {
         // 挂在共享节拍上：与封面旋转/频谱同相位，避免两个独立 16ms Timer
         // 交错产帧把整页推到 120fps（各组件更新率仍为 60fps，无视觉降级）。
-        PlayerFrameDriver.instance.addListener(_onEcoFrameTick);
+        AmllFrameDriver.instance.addListener(_onEcoFrameTick);
         _ecoDriverBound = true;
       }
     } else {
       if (_ecoDriverBound) {
-        PlayerFrameDriver.instance.removeListener(_onEcoFrameTick);
+        AmllFrameDriver.instance.removeListener(_onEcoFrameTick);
         _ecoDriverBound = false;
       }
       if (!_isTickerRunning) {
@@ -982,7 +982,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
       return;
     }
     // 用 _lastElapsed + 16ms 作为本帧时间：_onTick 内 dt 即 16ms，动画按真实时间推进
-    _onTick(_lastElapsed + PlayerFrameDriver.step);
+    _onTick(_lastElapsed + AmllFrameDriver.step);
   }
 
   /// v3 优化：检测所有 perLine 偏移弹簧是否已收敛。
@@ -1204,7 +1204,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
     WidgetsBinding.instance.removeObserver(this);
     widget.positionListenable?.removeListener(_onExternalPosition);
     if (_ecoDriverBound) {
-      PlayerFrameDriver.instance.removeListener(_onEcoFrameTick);
+      AmllFrameDriver.instance.removeListener(_onEcoFrameTick);
       _ecoDriverBound = false;
     }
     _ticker.dispose();
@@ -1940,7 +1940,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
       // 同时停掉 eco 限帧 Timer：静态画面无需继续驱动 _onTick
       //（否则 Timer 每 16ms 触发一次 setState，仍会产生 60fps 空帧）。
       if (_ecoDriverBound) {
-        PlayerFrameDriver.instance.removeListener(_onEcoFrameTick);
+        AmllFrameDriver.instance.removeListener(_onEcoFrameTick);
         _ecoDriverBound = false;
       }
       // 最后一帧 setState 确保稳态画面渲染
@@ -2166,7 +2166,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
       index = (_lineTops.length - 1).clamp(0, widget.lines.length - 1);
     }
     if (index >= 0 && index < widget.lines.length) {
-      AppHaptics.tick();
+      AmllHaptics.tick();
       widget.onSeek?.call(widget.lines[index].startTime);
     }
   }

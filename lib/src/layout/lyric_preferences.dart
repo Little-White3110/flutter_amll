@@ -382,6 +382,15 @@ class LyricPreferences extends ChangeNotifier {
   double get lineHeightMultiplier =>
       (_fontSize / defaultFontSize) * _lineSpacing;
 
+  /// 仅供测试：重置加载标记，使下一次 [load] 重新从 [backend] 读取。
+  ///
+  /// [load] 带 `_loaded` 幂等守卫，单例跨用例复用时后续调用直接返回，
+  /// 测试需在 setUp 中先调用本方法再注入新的 backend。
+  @visibleForTesting
+  static void resetForTest() {
+    instance._loaded = false;
+  }
+
   /// 从 [backend] 加载。App 启动时调用一次。
   Future<void> load() async {
     if (_loaded) return;

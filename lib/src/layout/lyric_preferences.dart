@@ -669,6 +669,7 @@ class LyricPreferences extends ChangeNotifier {
     }
     final file = File(path);
     if (!file.existsSync()) {
+      // ignore: avoid_print
       print('[LyricPreferences] 字体文件不存在: $path');
       _loadedCustomFontFamily = null;
       return;
@@ -684,6 +685,7 @@ class LyricPreferences extends ChangeNotifier {
       _loadedCustomFontFamily = familyName;
       notifyListeners();
     } catch (e) {
+      // ignore: avoid_print
       print('[LyricPreferences] 字体加载失败: $e');
       _loadedCustomFontFamily = null;
       notifyListeners();

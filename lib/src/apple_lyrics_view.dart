@@ -21,7 +21,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'platform/haptics.dart';
-import 'package:flutter/widgets.dart';
 
 import 'platform/frame_driver.dart';
 import 'controllers/lyric_scroll_controller.dart';
@@ -869,6 +868,7 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // ignore: deprecated_member_use
     final bool muted = !TickerMode.of(context);
     if (muted != _tickerModeMuted) {
       _tickerModeMuted = muted;
@@ -1365,7 +1365,6 @@ class _AppleLyricsViewState extends State<AppleLyricsView>
     // **真正限帧由 [_syncEcoDriver] 切换 Ticker/Timer 实现**：锁定 → 停 Ticker、
     // 用 60fps Timer 驱动 _onTick（限制实际帧生产）；解锁/关闭 eco → Ticker 满帧。
     if (LyricPreferences.instance.ecoMode) {
-      final bool wasUnlocked = _ecoUnlocked;
       _ecoUnlocked =
           _scrollController.isUserScrolling ||
           (_scrollController.isWaitingForAutoReturn &&

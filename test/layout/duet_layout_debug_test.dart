@@ -15,6 +15,7 @@ void main() {
     final result = DuetLayout.process(lines, true);
 
     for (int i = 0; i < lines.length; i++) {
+      // ignore: avoid_print
       print('line[$i] raw="${lines[i].text}" cleaned="${result.cleanedLines[i].text}" align=${result.alignments[i]}');
     }
 
@@ -34,7 +35,9 @@ void main() {
       const LyricLine(startTime: 1000, duration: 1000, text: '女：全角'),
     ];
     final result = DuetLayout.process(lines, true);
+    // ignore: avoid_print
     print('半角: raw="男:半角" cleaned="${result.cleanedLines[0].text}" align=${result.alignments[0]}');
+    // ignore: avoid_print
     print('全角: raw="女：全角" cleaned="${result.cleanedLines[1].text}" align=${result.alignments[1]}');
     expect(result.alignments[0], DuetAlignment.left);
     expect(result.alignments[1], DuetAlignment.right);
@@ -46,6 +49,7 @@ void main() {
       const LyricLine(startTime: 1000, duration: 1000, text: '女：你好啊'),
     ];
     final result = DuetLayout.process(lines, false);
+    // ignore: avoid_print
     print('关闭: align0=${result.alignments[0]} align1=${result.alignments[1]}');
     expect(result.alignments[0], DuetAlignment.defaultAlign);
     expect(result.alignments[1], DuetAlignment.defaultAlign);

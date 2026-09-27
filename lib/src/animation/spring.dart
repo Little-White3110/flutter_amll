@@ -49,9 +49,9 @@ class Spring {
     double damping = 20,
     double stiffness = 100,
     double initialPosition = 0,
-  })  : _mass = mass,
-        _damping = damping,
-        _stiffness = stiffness,
+  })  : _mass = mass, // ignore: prefer_initializing_formals
+        _damping = damping, // ignore: prefer_initializing_formals
+        _stiffness = stiffness, // ignore: prefer_initializing_formals
         _position = initialPosition,
         _target = initialPosition,
         _velocity = 0,

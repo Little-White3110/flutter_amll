@@ -1,6 +1,10 @@
 .dart_tool/
 .packages
 build/
+# library package 不锁定依赖版本
+pubspec.lock
+# WorkBuddy 会话与记忆目录，不入库
+.workbuddy/
 .pub-cache/
 .pub/
 .idea/

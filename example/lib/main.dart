@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_amll/flutter_amll.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'preview/lyrics_preview_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

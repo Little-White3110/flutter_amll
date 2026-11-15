@@ -6,15 +6,12 @@ import 'package:flutter_amll/src/storage/lyric_preferences_backend.dart';
 ///
 /// 锁定三件事：
 /// 1. 默认必须为 true（= 历史行为：凸起放大 + 左右外扩，升级后观感不变）；
-/// 2. setter 落盘到约定的持久化 key（改名会静默丢用户设置）；
+/// 2. setter 落盘到约定的 持久化 key（改名会静默丢用户设置）；
 /// 3. reset 后回到默认值且 key 被移除。
 void main() {
-  late MemoryLyricPreferencesBackend backend;
-
   setUp(() {
     LyricPreferences.resetForTest();
-    backend = MemoryLyricPreferencesBackend();
-    LyricPreferences.backend = backend;
+    LyricPreferences.backend = MemoryLyricPreferencesBackend();
     addTearDown(() => LyricPreferences.instance.reset());
   });
 
@@ -30,12 +27,11 @@ void main() {
     test('setter 生效并落盘到 lyric_glow_char_scale', () async {
       await LyricPreferences.instance.setUseGlowCharScale(false);
       expect(LyricPreferences.instance.useGlowCharScale, isFalse);
-
-      expect(backend.values['lyric_glow_char_scale'], isFalse);
+      expect((LyricPreferences.backend as MemoryLyricPreferencesBackend).values['lyric_glow_char_scale'], isFalse);
 
       await LyricPreferences.instance.setUseGlowCharScale(true);
       expect(LyricPreferences.instance.useGlowCharScale, isTrue);
-      expect(backend.values['lyric_glow_char_scale'], isTrue);
+      expect((LyricPreferences.backend as MemoryLyricPreferencesBackend).values['lyric_glow_char_scale'], isTrue);
     });
 
     test('值未变化时不重复通知监听者', () async {
@@ -59,7 +55,7 @@ void main() {
         LyricPreferences.instance.useGlowCharScale,
         equals(LyricPreferences.defaultGlowCharScale),
       );
-      expect(backend.values['lyric_glow_char_scale'], isNull);
+      expect((LyricPreferences.backend as MemoryLyricPreferencesBackend).values['lyric_glow_char_scale'], isNull);
     });
   });
 }

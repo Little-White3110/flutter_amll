@@ -7,9 +7,9 @@ library;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_amll/src/apple_lyrics_view.dart';
-import 'package:flutter_amll/src/layout/lyric_preferences.dart';
 import 'package:flutter_amll/src/models/lyric_line.dart';
 import 'package:flutter_amll/src/storage/lyric_preferences_backend.dart';
+import 'package:flutter_amll/src/layout/lyric_preferences.dart';
 
 void main() {
   setUp(() {

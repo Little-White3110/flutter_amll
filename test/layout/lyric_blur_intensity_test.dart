@@ -7,14 +7,11 @@ import 'package:flutter_amll/src/storage/lyric_preferences_backend.dart';
 /// 锁定三件事：
 /// 1. 默认值必须为 1.0（等于历史行为：sigma = 距离分级值，观感不得变）；
 /// 2. 越界输入被 clamp 到声明范围；
-/// 3. setter 落盘到约定的持久化 key（改名会静默丢用户设置）。
+/// 3. setter 落盘到约定的 持久化 key（改名会静默丢用户设置）。
 void main() {
-  late MemoryLyricPreferencesBackend backend;
-
   setUp(() {
     LyricPreferences.resetForTest();
-    backend = MemoryLyricPreferencesBackend();
-    LyricPreferences.backend = backend;
+    LyricPreferences.backend = MemoryLyricPreferencesBackend();
     addTearDown(() => LyricPreferences.instance.reset());
   });
 
@@ -25,30 +22,34 @@ void main() {
       expect(LyricPreferences.instance.blurIntensity, equals(1.0));
     });
 
-    test('setter 生效并 clamp 到 [0.5, 2.0]', () async {
-      await LyricPreferences.instance.setBlurIntensity(1.6);
-      expect(LyricPreferences.instance.blurIntensity, equals(1.6));
+    test('setter 生效并 clamp 到当前平台范围', () async {
+      final lo = LyricPreferences.minBlurIntensityForCurrentPlatform;
+      final hi = LyricPreferences.maxBlurIntensityForCurrentPlatform;
+      await LyricPreferences.instance.setBlurIntensity(hi);
+      expect(LyricPreferences.instance.blurIntensity, equals(hi));
 
       await LyricPreferences.instance.setBlurIntensity(99);
-      expect(LyricPreferences.instance.blurIntensity,
-          equals(LyricPreferences.maxBlurIntensity));
+      expect(LyricPreferences.instance.blurIntensity, equals(hi));
 
       await LyricPreferences.instance.setBlurIntensity(0.1);
-      expect(LyricPreferences.instance.blurIntensity,
-          equals(LyricPreferences.minBlurIntensity));
+      expect(LyricPreferences.instance.blurIntensity, equals(lo));
     });
 
     test('持久化到 lyric_blur_intensity', () async {
-      await LyricPreferences.instance.setBlurIntensity(1.4);
-      expect(backend.values['lyric_blur_intensity'], equals(1.4));
+      await LyricPreferences.instance
+          .setBlurIntensity(LyricPreferences.maxBlurIntensityForCurrentPlatform);
+      expect(
+          (LyricPreferences.backend as MemoryLyricPreferencesBackend).values['lyric_blur_intensity'],
+          equals(LyricPreferences.maxBlurIntensityForCurrentPlatform));
     });
 
     test('reset 后回到默认值且 key 被移除', () async {
-      await LyricPreferences.instance.setBlurIntensity(1.8);
+      await LyricPreferences.instance
+          .setBlurIntensity(LyricPreferences.maxBlurIntensityForCurrentPlatform);
       await LyricPreferences.instance.reset();
       expect(LyricPreferences.instance.blurIntensity,
-          equals(LyricPreferences.defaultBlurIntensity));
-      expect(backend.values['lyric_blur_intensity'], isNull);
+          equals(LyricPreferences.defaultBlurIntensityForCurrentPlatform));
+      expect((LyricPreferences.backend as MemoryLyricPreferencesBackend).values['lyric_blur_intensity'], isNull);
     });
   });
 }

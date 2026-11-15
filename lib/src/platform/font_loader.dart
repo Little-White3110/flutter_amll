@@ -21,6 +21,17 @@ class AmllFontLoader {
   /// 选择字体文件（宿主注入；未注入时返回 null）。
   static Future<String?> Function() pickFontFile = () async => null;
 
+  /// Windows 端内置字体的 family（宿主注入；未注入时为 null，走系统字体链）。
+  ///
+  /// 源仓库对应 `WindowsDefaultFont.loadedFamily`（内置思源黑体，需宿主在启动时
+  /// 调 `WindowsDefaultFont.load()` 注册）。组件库不打包字体资源，宿主注册成功后
+  /// 把 family 写入本字段即可让偏好层的 `effectiveFontFamily` 取到它：
+  ///
+  /// ```dart
+  /// AmllFontLoader.windowsDefaultFamily = WindowsDefaultFont.loadedFamily;
+  /// ```
+  static String? windowsDefaultFamily;
+
   /// 从持久化路径加载自定义 TTF/OTF，返回注册成功的 fontFamily，失败返回 null。
   static Future<String?> loadIfAvailable(String? fontPath) async {
     if (fontPath == null || fontPath.isEmpty) return null;

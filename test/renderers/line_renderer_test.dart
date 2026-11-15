@@ -3,12 +3,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_amll/src/utils/lyric_wrap_plan.dart';
 import 'package:flutter_amll/src/layout/duet_layout.dart';
 import 'package:flutter_amll/src/layout/lyric_layout.dart';
 import 'package:flutter_amll/src/layout/lyric_preferences.dart';
 import 'package:flutter_amll/src/models/lyric_line.dart';
 import 'package:flutter_amll/src/renderers/line_renderer.dart';
-import 'package:flutter_amll/src/utils/lyric_wrap_plan.dart';
+import 'package:flutter_amll/src/storage/lyric_preferences_backend.dart';
 
 /// LineRenderer 单元测试
 ///
@@ -24,7 +25,11 @@ void main() {
   late LineRenderer renderer;
   late LyricLine line;
 
-  setUp(() {
+  setUp(() async {
+    LyricPreferences.resetForTest();
+    LyricPreferences.backend = MemoryLyricPreferencesBackend()
+      ..values.addAll({'lyric_line_balance': true});
+    await LyricPreferences.instance.load();
     renderer = LineRenderer();
     line = const LyricLine(
       startTime: 0,
@@ -737,6 +742,156 @@ void main() {
         greaterThan(0.5),
         reason: '出场副行向顶边压缩（向上翻走）',
       );
+    });
+  });
+
+  // ==================== 11. 折行布局缓存（折行掉帧修复） ====================
+  group('折行布局缓存', () {
+    // Ahem 测试字体每字符宽 = fontSize = 15，maxWidth=60 → 每视觉行 4 字，多行
+    const longLine = LyricLine(
+      startTime: 0,
+      duration: 4000,
+      text: '这是一段足够长的中文歌词用于测试自动换行',
+      words: [],
+    );
+    const otherLongLine = LyricLine(
+      startTime: 0,
+      duration: 4000,
+      text: '另一段同样足够长的中文歌词内容用于验证重排',
+      words: [],
+    );
+    const double fontSize = 15;
+    const double maxWidth = 60;
+
+    int planRows(LyricLine l) => LyricWrapPlanner.forLine(
+      l,
+      LyricLayout.mainStyle(fontSize),
+      maxWidth,
+      balanced: LyricPreferences.instance.lineBalance,
+    ).rowCount;
+
+    /// 收敛到稳态 alpha（当前行），让 alpha 守卫不再逐帧翻转。
+    void settle() {
+      renderer.setLineState(isActive: true, scale: LyricLayout.activeScale);
+      for (int i = 0; i < 200; i++) {
+        renderer.tick(0.016);
+      }
+    }
+
+    test('首帧按视觉行数布局，同态第二帧零重排（缓存命中）', () {
+      settle();
+      final int rows = planRows(longLine);
+      expect(rows, greaterThan(1), reason: '该文本在窄视口下必须折行');
+
+      renderer.paintLine(
+        RecordingCanvas(),
+        ui.Offset.zero,
+        longLine,
+        fontSize,
+        maxWidth: maxWidth,
+      );
+      final int afterFirst = renderer.debugRowLayoutCount;
+      expect(afterFirst, rows, reason: '首帧每个视觉行各布局一次');
+
+      renderer.paintLine(
+        RecordingCanvas(),
+        ui.Offset.zero,
+        longLine,
+        fontSize,
+        maxWidth: maxWidth,
+      );
+      expect(
+        renderer.debugRowLayoutCount,
+        afterFirst,
+        reason: '同态第二帧必须全部命中槽位缓存，零重排（折行掉帧根因修复）',
+      );
+    });
+
+    test('alpha 变化后重新布局（颜色烘焙在 TextStyle 内）', () {
+      settle();
+      renderer.paintLine(
+        RecordingCanvas(),
+        ui.Offset.zero,
+        longLine,
+        fontSize,
+        maxWidth: maxWidth,
+      );
+      final int afterFirst = renderer.debugRowLayoutCount;
+
+      // 切到非当前行并 tick 让 alpha 明显偏离，颜色变化必须触发重排
+      renderer.setLineState(
+        isActive: false,
+        scale: LyricLayout.inactiveScale,
+        blurActive: false,
+      );
+      for (int i = 0; i < 20; i++) {
+        renderer.tick(0.016);
+      }
+      renderer.paintLine(
+        RecordingCanvas(),
+        ui.Offset.zero,
+        longLine,
+        fontSize,
+        maxWidth: maxWidth,
+      );
+      expect(
+        renderer.debugRowLayoutCount,
+        greaterThan(afterFirst),
+        reason: 'alpha 变化必须重排（颜色随 alpha 变化）',
+      );
+    });
+
+    test('换到不同折行行后重新布局，且行数等于各自计划', () {
+      settle();
+      renderer.paintLine(
+        RecordingCanvas(),
+        ui.Offset.zero,
+        longLine,
+        fontSize,
+        maxWidth: maxWidth,
+      );
+      final int afterFirst = renderer.debugRowLayoutCount;
+      expect(afterFirst, planRows(longLine));
+
+      renderer.paintLine(
+        RecordingCanvas(),
+        ui.Offset.zero,
+        otherLongLine,
+        fontSize,
+        maxWidth: maxWidth,
+      );
+      expect(
+        renderer.debugRowLayoutCount - afterFirst,
+        planRows(otherLongLine),
+        reason: '换行（不同 rowTexts）应重排，且重排次数 = 新行视觉行数',
+      );
+    });
+  });
+
+  // ==================== 行级颜色覆盖（当前行 / 上方已播行） ====================
+  group('行级颜色覆盖', () {
+    test('非当前行也使用调用方传入的覆盖色（不再按 isActive 门控）', () {
+      // 「上方行使用已播颜色」开启时上方已播行 isActive=false，
+      // 但仍必须用当前行的高亮色绘制。
+      const int override = 0xFF3366CC;
+      renderer.setLineState(
+        isActive: false,
+        scale: LyricLayout.inactiveScale,
+        activeColorValue: override,
+      );
+      renderer.paintLine(makeCanvas(), ui.Offset.zero, line, 20);
+      expect(renderer.lastPaintedTextColorValue, equals(override));
+    });
+
+    test('未传覆盖色时回退主题歌词色', () {
+      LyricLayout.textColorValue = 0xFF112233;
+      addTearDown(() => LyricLayout.textColorValue = 0xFFFFFFFF);
+      renderer.setLineState(
+        isActive: false,
+        scale: LyricLayout.inactiveScale,
+      );
+      renderer.paintLine(makeCanvas(), ui.Offset.zero, line, 20);
+      expect(renderer.lastPaintedTextColorValue, equals(0xFF112233));
     });
   });
 }

@@ -24,4 +24,6 @@ export 'src/platform/frame_driver.dart';
 export 'src/platform/haptics.dart';
 export 'src/platform/toast.dart';
 export 'src/storage/lyric_preferences_backend.dart';
+export 'src/utils/lyric_line_balance.dart';
 export 'src/utils/lyric_position.dart';
+export 'src/utils/lyric_wrap_plan.dart';

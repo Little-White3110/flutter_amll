@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_amll/src/layout/lyric_preferences.dart';
 import 'package:flutter_amll/src/models/lyric_line.dart';
 import 'package:flutter_amll/src/renderers/emphasize_effect.dart';
 
@@ -400,6 +401,74 @@ void main() {
         isLastWord: false,
         wordIndex: 0,
         anchorCharCount: 1,
+      );
+      expect(state, equals(EmphasizeState.idle));
+    });
+  });
+
+  group('computeState - 辉光字符缩放开关', () {
+    // duration=10000ms、t=5000ms（凸起峰值）：
+    //   amount = 1.2（封顶）、transX = 1.0
+    //   开启：scale = 1 + 1*0.1*1.2 = 1.12，offsetXEm 随字符位置外扩
+    //   关闭：scale = 1.0，offsetXEm = 0，其余（上浮 / 浮层 / 辉光）不变
+    EmphasizeState stateAt({
+      required bool? charScaleEnabled,
+      int wordIndex = 0,
+      int anchorCharCount = 1,
+    }) {
+      return effect.computeState(
+        word: makeWord(duration: 10000, text: '运'),
+        currentTimeMs: 5000,
+        isLastWord: false,
+        wordIndex: wordIndex,
+        anchorCharCount: anchorCharCount,
+        charScaleEnabled: charScaleEnabled,
+      );
+    }
+
+    test('关闭后 scale 恒 1.0、offsetXEm 恒 0', () {
+      final state = stateAt(charScaleEnabled: false);
+      expect(state.scale, closeTo(1.0, 1e-9));
+      expect(state.offsetXEm, closeTo(0.0, 1e-9));
+    });
+
+    test('关闭后上浮与辉光亮度不受影响', () {
+      final on = stateAt(charScaleEnabled: true);
+      final off = stateAt(charScaleEnabled: false);
+      // 上浮 / 正弦浮层 / 辉光亮度 / 阴影相对强度全部保持一致
+      expect(off.offsetYEm, closeTo(on.offsetYEm, 1e-9));
+      expect(off.floatYEm, closeTo(on.floatYEm, 1e-9));
+      expect(off.glowLevel, closeTo(on.glowLevel, 1e-9));
+      expect(off.shadowBlurEm, closeTo(on.shadowBlurEm, 1e-9));
+      // 确实仍有上浮与发光（不是整体退回 idle）
+      expect(off.offsetYEm, lessThan(0.0));
+      expect(off.glowLevel, greaterThan(0.0));
+    });
+
+    test('开启时沿用历史公式（scale 1.12、offsetXEm 非 0）', () {
+      // anchorCharCount=2、wordIndex=1：offsetX = -1*0.03*1.2*(1-1) = 0，
+      // 故取 wordIndex=0 才能观察到非零外扩。
+      final state = stateAt(charScaleEnabled: true, anchorCharCount: 2);
+      expect(state.scale, closeTo(1.12, 1e-9));
+      // offsetXEm = -1 * 0.03 * 1.2 * (2/2 - 0) = -0.036
+      expect(state.offsetXEm, closeTo(-0.036, 1e-9));
+    });
+
+    test('不传参数时回退到偏好（默认开启 = 历史行为）', () {
+      final state = stateAt(charScaleEnabled: null, anchorCharCount: 2);
+      expect(state.scale, closeTo(1.12, 1e-9));
+      expect(state.offsetXEm, closeTo(-0.036, 1e-9));
+    });
+
+    test('窗口外（idle）分支不受开关影响', () {
+      final word = makeWord(startTime: 1000, duration: 1000, text: '运');
+      final state = effect.computeState(
+        word: word,
+        currentTimeMs: 500,
+        isLastWord: false,
+        wordIndex: 0,
+        anchorCharCount: 1,
+        charScaleEnabled: false,
       );
       expect(state, equals(EmphasizeState.idle));
     });
@@ -829,6 +898,20 @@ void main() {
   });
 
   group('resolveThresholdMs - 快慢歌阈值', () {
+    /// 显式走自适应模式（默认已改为固定时长，避免测试依赖全局默认）。
+    int adaptive({
+      List<LyricLine>? lines,
+      int? songBpm,
+      double? thresholdFactor,
+    }) {
+      return EmphasizeEffect.resolveThresholdMs(
+        lines: lines,
+        songBpm: songBpm,
+        thresholdFactor: thresholdFactor,
+        mode: GlowThresholdMode.adaptive,
+      );
+    }
+
     /// 构造带逐字时间戳的行。
     LyricLine makeKrcLine(List<int> durations) {
       final words = List<LyricWord>.generate(
@@ -848,47 +931,47 @@ void main() {
         LyricLine(startTime: 0, duration: 1000, text: text);
 
     test('songBpm=120 → 阈值 600（一字一拍 500ms × 默认系数 1.2）', () {
-      expect(EmphasizeEffect.resolveThresholdMs(songBpm: 120), 600);
+      expect(adaptive(songBpm: 120), 600);
     });
 
     test('songBpm=80 → 阈值 900（一字一拍 750ms × 默认系数 1.2）', () {
-      expect(EmphasizeEffect.resolveThresholdMs(songBpm: 80), 900);
+      expect(adaptive(songBpm: 80), 900);
     });
 
     test('无 BPM，KRC 字长中位数 400 → 阈值 480（快歌自适应）', () {
       final lines = [makeKrcLine(List.filled(30, 400))];
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines), 480);
+      expect(adaptive(lines: lines), 480);
     });
 
     test('无 BPM，KRC 字长中位数 800 → 阈值 960（慢歌自适应）', () {
       final lines = [makeKrcLine(List.filled(30, 800))];
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines), 960);
+      expect(adaptive(lines: lines), 960);
     });
 
     test('阈值随字长连续变化（无固定档位）', () {
       final lines500 = [makeKrcLine(List.filled(30, 500))];
       final lines600 = [makeKrcLine(List.filled(30, 600))];
       final lines700 = [makeKrcLine(List.filled(30, 700))];
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines500), 600);
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines600), 720);
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines700), 840);
+      expect(adaptive(lines: lines500), 600);
+      expect(adaptive(lines: lines600), 720);
+      expect(adaptive(lines: lines700), 840);
     });
 
     test('无 BPM 且纯 LRC（无逐字）→ 兜底默认 500', () {
       final lines = [makeLrcLine('第一行'), makeLrcLine('第二行')];
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines), 500);
+      expect(adaptive(lines: lines), 500);
     });
 
     test('无 BPM 且逐字样本不足（< 20 字）→ 兜底默认 500', () {
       final lines = [makeKrcLine(List.filled(10, 300))];
-      expect(EmphasizeEffect.resolveThresholdMs(lines: lines), 500);
+      expect(adaptive(lines: lines), 500);
     });
 
     test('songBpm 优先于歌词统计', () {
       // 歌词字长中位数 800（本应得 960），但显式 BPM=120 → 600 优先
       final lines = [makeKrcLine(List.filled(30, 800))];
       expect(
-        EmphasizeEffect.resolveThresholdMs(lines: lines, songBpm: 120),
+        adaptive(lines: lines, songBpm: 120),
         600,
       );
     });
@@ -897,13 +980,101 @@ void main() {
       final lines = [makeKrcLine(List.filled(30, 400))];
       // 系数 1.0 → 400；1.2（默认）→ 480；2.0 → 800
       expect(
-        EmphasizeEffect.resolveThresholdMs(lines: lines, thresholdFactor: 1.0),
+        adaptive(lines: lines, thresholdFactor: 1.0),
         400,
       );
       expect(
-        EmphasizeEffect.resolveThresholdMs(lines: lines, thresholdFactor: 2.0),
+        adaptive(lines: lines, thresholdFactor: 2.0),
         800,
       );
+    });
+  });
+
+  group('resolveThresholdMs - 固定时长判定模式', () {
+    /// 构造带逐字时间戳的行（与自适应组同款）。
+    LyricLine makeKrcLine(List<int> durations) {
+      final words = List<LyricWord>.generate(
+        durations.length,
+        (i) => LyricWord(startTime: 0, duration: durations[i], text: '运'),
+      );
+      return LyricLine(
+        startTime: 0,
+        duration: 1000,
+        text: '运' * durations.length,
+        words: words,
+      );
+    }
+
+    test('fixed 模式显式传入阈值 → 忽略 BPM 直接返回固定值', () {
+      expect(
+        EmphasizeEffect.resolveThresholdMs(
+          songBpm: 120,
+          mode: GlowThresholdMode.fixed,
+          fixedThresholdMs: 1000,
+        ),
+        1000,
+      );
+    });
+
+    test('fixed 模式显式传入阈值 → 忽略歌词字长统计直接返回固定值', () {
+      final lines = [makeKrcLine(List.filled(30, 400))];
+      expect(
+        EmphasizeEffect.resolveThresholdMs(
+          lines: lines,
+          mode: GlowThresholdMode.fixed,
+          fixedThresholdMs: 1000,
+        ),
+        1000,
+      );
+    });
+
+    test('fixed 模式未显式传阈值 → 取偏好默认 1000', () {
+      expect(
+        EmphasizeEffect.resolveThresholdMs(mode: GlowThresholdMode.fixed),
+        LyricPreferences.defaultGlowFixedThresholdMs,
+      );
+      expect(LyricPreferences.defaultGlowFixedThresholdMs, 1000);
+    });
+
+    test('fixed 模式阈值四舍五入取整（ms）', () {
+      expect(
+        EmphasizeEffect.resolveThresholdMs(
+          mode: GlowThresholdMode.fixed,
+          fixedThresholdMs: 999.6,
+        ),
+        1000,
+      );
+      expect(
+        EmphasizeEffect.resolveThresholdMs(
+          mode: GlowThresholdMode.fixed,
+          fixedThresholdMs: 499.4,
+        ),
+        499,
+      );
+    });
+
+    test('adaptive 模式显式传入 → 与原有逻辑一致（不回归）', () {
+      expect(
+        EmphasizeEffect.resolveThresholdMs(
+          songBpm: 120,
+          mode: GlowThresholdMode.adaptive,
+          thresholdFactor: 1.2,
+        ),
+        600,
+      );
+    });
+
+    test('固定阈值 1000ms 下：999ms 字不触发、1000ms 字触发', () {
+      final threshold = EmphasizeEffect.resolveThresholdMs(
+        mode: GlowThresholdMode.fixed,
+        fixedThresholdMs: 1000,
+      );
+      final justBelow = makeWord(duration: 999, text: '运');
+      final exactly = makeWord(duration: 1000, text: '运');
+      expect(EmphasizeEffect.shouldEmphasize(justBelow, thresholdMs: threshold),
+          isFalse);
+      expect(EmphasizeEffect.shouldEmphasize(exactly, thresholdMs: threshold),
+          isTrue);
     });
   });
 

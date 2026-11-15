@@ -23,6 +23,26 @@ enum LyricFontSource { system, bundled, custom }
 /// [displayMode] 决定显示哪个字段。
 enum LyricDisplayMode { translation, roma }
 
+/// 字内渐变（当前行扫光）模型：classic = 原有宽过渡带；sweep = 移植自 myune 的扫光。
+///
+/// - [LyricFillMode.classic]：原有「行内累计宽度 maskX + 固定过渡半宽（行内平均字宽）」
+///   模型，过渡带宽、边缘柔和。
+/// - [LyricFillMode.sweep]：myune 扫光模型——前端沿**墨迹长度**推进（字间空白瞬时跨越），
+///   羽化宽度按字宽 + 时长自适应（快字宽、慢字窄），过渡带更锐利（默认）。
+///
+/// 与 [LyricFontSource] / [LyricDisplayMode] 一样，持久化时存 `name`，未知值回退默认。
+enum LyricFillMode { classic, sweep }
+
+/// 辉光触发判定模式：自适应 or 固定时长。
+///
+/// - [GlowThresholdMode.adaptive]：原有判定——按歌曲 BPM / KRC 歌词字长中位数
+///   × 阈值系数（[LyricPreferences.glowThresholdFactor]）自适应推断触发阈值。
+/// - [GlowThresholdMode.fixed]：固定时长判定——字时长 >= 固定阈值
+///   （[LyricPreferences.glowFixedThresholdMs]，默认 1000ms）才触发辉光（默认）。
+///
+/// 与 [LyricFillMode] 一样，持久化时存 `name`，未知值回退默认。
+enum GlowThresholdMode { adaptive, fixed }
+
 /// 歌词显示偏好设置（字号 + 行间距 + 字体）。
 ///
 /// 提供全局静态访问 + ChangeNotifier 通知，供 AppleLyricsView、
@@ -105,6 +125,44 @@ class LyricPreferences extends ChangeNotifier {
 
   /// 辉光触发阈值系数默认值
   static const double defaultGlowThresholdFactor = 1.2;
+
+  /// 辉光固定时长判定阈值下限（ms）。
+  static const double minGlowFixedThresholdMs = 500;
+
+  /// 辉光固定时长判定阈值上限（ms）。
+  static const double maxGlowFixedThresholdMs = 2000;
+
+  /// 辉光固定时长判定阈值默认值（ms）。
+  static const double defaultGlowFixedThresholdMs = 1000;
+
+  // ============== 歌词辉光强度 ==============
+
+  /// 辉光强度倍数下限。
+  ///
+  /// 0.2 时辉光只剩一层极淡的光晕，接近"关闭辉光观感"但保留开关状态，
+  /// 不会出现"开关开着却完全没效果"的死档。
+  static const double minGlowIntensity = 0.2;
+
+  /// 辉光强度倍数上限。
+  ///
+  /// 2.0 时紧贴笔画的环带 alpha 从约 0.25 提到约 0.45（实测），再高会
+  /// 让白色歌词的笔画边缘过曝、与背景对比度反转。
+  static const double maxGlowIntensity = 2.0;
+
+  /// 辉光强度倍数默认值。
+  ///
+  /// 1.0 = 历史行为（辉光剖面按 `EmphasizeEffect.glowLevel` 原样输出），
+  /// 确保升级后视觉不变。
+  static const double defaultGlowIntensity = 1.0;
+
+  // ============== 辉光字符缩放开关 ==============
+
+  /// 辉光字符缩放开关默认值。
+  ///
+  /// true = 历史行为：强调字凸起时放大（最高 1.12×）并左右外扩。
+  /// false = 只停掉放大与水平外扩，仍保留上浮、正弦浮层与辉光呼吸——
+  /// 让不喜欢"字被顶大"的用户能保留发光但不要弹跳。
+  static const bool defaultGlowCharScale = true;
 
   /// 非当前行缩放最小值。
   ///
@@ -240,9 +298,16 @@ class LyricPreferences extends ChangeNotifier {
   static const String _keyShowTranslation = 'lyric_show_translation';
   static const String _keyDisplayMode = 'lyric_display_mode';
   static const String _keyUseDuetLayout = 'lyric_use_duet_layout';
+  static const String _keyLineBalance = 'lyric_line_balance';
   static const String _keyEcoMode = 'lyric_eco_mode';
   static const String _keyUseDynamicLyricColor = 'lyric_dynamic_color';
   static const String _keyGlowThresholdFactor = 'lyric_glow_threshold_factor';
+  static const String _keyGlowThresholdMode = 'lyric_glow_threshold_mode';
+  static const String _keyGlowFixedThresholdMs =
+      'lyric_glow_fixed_threshold_ms';
+  static const String _keyGlowIntensity = 'lyric_glow_intensity';
+  static const String _keyGlowCharScale = 'lyric_glow_char_scale';
+  static const String _keyFillMode = 'lyric_fill_mode';
   static const String _keyInactiveScale = 'lyric_inactive_scale';
   static const String _keyAlignPosition = 'lyric_align_position';
   static const String _keyCascadeMaxDelayMs = 'lyric_cascade_max_delay_ms';
@@ -261,8 +326,14 @@ class LyricPreferences extends ChangeNotifier {
   // 歌词模糊强度倍数（默认 1.0 = 历史行为）
   double _blurIntensity = defaultBlurIntensity;
   bool _useGlowEffect = true;
+  // 辉光强度倍数（默认 1.0 = 历史行为）
+  double _glowIntensity = defaultGlowIntensity;
+  // 辉光字符缩放（默认开启）：关闭后只停放大与外扩，保留上浮/浮层/辉光亮度
+  bool _glowCharScale = defaultGlowCharScale;
   bool _useFlowingBackground = false;
   bool _useDuetLayout = false;
+  // 平衡行换行（默认开启）：长歌词行用 DP 求均衡断点，见 LyricWrapPlanner
+  bool _lineBalance = true;
   bool _showTranslation = true;
   LyricDisplayMode _displayMode = LyricDisplayMode.translation;
   LyricFontSource _fontSource = LyricFontSource.system;
@@ -273,6 +344,12 @@ class LyricPreferences extends ChangeNotifier {
   bool _useDynamicLyricColor = true;
   // 辉光触发阈值系数（默认 1.2）：触发阈值 = 歌词字长中位数 × 该系数
   double _glowThresholdFactor = defaultGlowThresholdFactor;
+  // 辉光判定模式（默认固定时长）：不再随 BPM/字长自适应推断
+  GlowThresholdMode _glowThresholdMode = GlowThresholdMode.fixed;
+  // 辉光固定时长判定阈值（ms，默认 1000）
+  double _glowFixedThresholdMs = defaultGlowFixedThresholdMs;
+  // 字内渐变模型：默认 sweep（扫光），classic 为原有观感
+  LyricFillMode _fillMode = LyricFillMode.sweep;
   // 非当前行缩放（默认 0.850）：清晰层非当前行与 AM 模糊层共用此值
   double _inactiveScale = defaultInactiveScale;
   // 当前行垂直锚位（默认 0.35）：当前行中心落在视口高度的该比例处
@@ -306,8 +383,26 @@ class LyricPreferences extends ChangeNotifier {
   double get blurIntensity => _blurIntensity;
 
   bool get useGlowEffect => _useGlowEffect;
+
+  /// 歌词辉光强度倍数（范围 [minGlowIntensity]~[maxGlowIntensity]）。
+  ///
+  /// 辉光层每帧的 alpha = `EmphasizeState.glowLevel × 本倍数`（clamp 到 1.0），
+  /// 超出 1.0 的部分改用 `BlendMode.plus` 追加一层——只提亮度，不改光形。
+  double get glowIntensity => _glowIntensity;
+
+  /// 辉光字符缩放是否开启（默认开启）。
+  ///
+  /// 关闭后强调字不再被放大（`scale` 恒 1.0）与左右外扩（`offsetXEm` 恒 0），
+  /// 上浮（`offsetYEm`）、正弦浮层（`floatYEm`）与辉光亮度（`glowLevel`）不受影响。
+  bool get useGlowCharScale => _glowCharScale;
   bool get useFlowingBackground => _useFlowingBackground;
   bool get useDuetLayout => _useDuetLayout;
+
+  /// 平衡行换行是否开启（默认开启）。
+  ///
+  /// 开启后长歌词行的断点由 `LyricWrapPlanner` 用 DP 求「各行宽度最均匀」的方案；
+  /// 关闭则退回旧的「累加宽度超可用宽即换行」贪心（行为与改造前逐字一致）。
+  bool get lineBalance => _lineBalance;
   bool get showTranslation => _showTranslation;
   LyricDisplayMode get displayMode => _displayMode;
   LyricFontSource get fontSource => _fontSource;
@@ -323,6 +418,21 @@ class LyricPreferences extends ChangeNotifier {
   ///
   /// 触发阈值 = 歌词字长中位数 × 该系数；系数越小越容易触发辉光。
   double get glowThresholdFactor => _glowThresholdFactor;
+
+  /// 辉光触发判定模式（默认 [GlowThresholdMode.fixed]）。
+  ///
+  /// [GlowThresholdMode.adaptive] = 原有判定（BPM/字长中位数 × 系数），
+  /// [GlowThresholdMode.fixed] = 固定时长判定（[glowFixedThresholdMs]）。
+  GlowThresholdMode get glowThresholdMode => _glowThresholdMode;
+
+  /// 辉光固定时长判定阈值（ms，范围 [minGlowFixedThresholdMs]~
+  /// [maxGlowFixedThresholdMs]）。仅 [glowThresholdMode] 为 fixed 时生效。
+  double get glowFixedThresholdMs => _glowFixedThresholdMs;
+
+  /// 字内渐变（当前行扫光）模型，默认 [LyricFillMode.sweep]。
+  ///
+  /// 仅影响当前行的字内渐变；非当前行的 alpha 路径与关闭渐变时不受影响。
+  LyricFillMode get fillMode => _fillMode;
 
   /// 非当前行缩放（范围 [minInactiveScale]~[maxInactiveScale]）。
   ///
@@ -407,8 +517,14 @@ class LyricPreferences extends ChangeNotifier {
         (backend.getDouble(_keyBlurIntensity) ?? defaultBlurIntensity)
             .clamp(minBlurIntensity, maxBlurIntensity);
     _useGlowEffect = backend.getBool(_keyUseGlowEffect) ?? true;
+    _glowIntensity =
+        (backend.getDouble(_keyGlowIntensity) ?? defaultGlowIntensity)
+            .clamp(minGlowIntensity, maxGlowIntensity);
+    _glowCharScale =
+        backend.getBool(_keyGlowCharScale) ?? defaultGlowCharScale;
     _useFlowingBackground = backend.getBool(_keyUseFlowingBackground) ?? false;
     _useDuetLayout = backend.getBool(_keyUseDuetLayout) ?? false;
+    _lineBalance = backend.getBool(_keyLineBalance) ?? true;
     _showTranslation = backend.getBool(_keyShowTranslation) ?? true;
     _displayMode = _displayModeFromName(backend.getString(_keyDisplayMode));
     _fontSource = _fontSourceFromName(backend.getString(_keyFontSource));
@@ -418,6 +534,14 @@ class LyricPreferences extends ChangeNotifier {
     _glowThresholdFactor =
         (backend.getDouble(_keyGlowThresholdFactor) ?? defaultGlowThresholdFactor)
             .clamp(minGlowThresholdFactor, maxGlowThresholdFactor);
+    _glowThresholdMode = _glowThresholdModeFromName(
+      backend.getString(_keyGlowThresholdMode),
+    );
+    _glowFixedThresholdMs =
+        (backend.getDouble(_keyGlowFixedThresholdMs) ??
+                defaultGlowFixedThresholdMs)
+            .clamp(minGlowFixedThresholdMs, maxGlowFixedThresholdMs);
+    _fillMode = _fillModeFromName(backend.getString(_keyFillMode));
     _inactiveScale = (backend.getDouble(_keyInactiveScale) ?? defaultInactiveScale)
         .clamp(minInactiveScale, maxInactiveScale);
     _alignPosition =
@@ -514,6 +638,14 @@ class LyricPreferences extends ChangeNotifier {
     await backend.setBool(_keyUseDuetLayout, enabled);
   }
 
+  /// 设置平衡行换行开关并持久化。
+  Future<void> setLineBalance(bool enabled) async {
+    if (_lineBalance == enabled) return;
+    _lineBalance = enabled;
+    notifyListeners();
+    await backend.setBool(_keyLineBalance, enabled);
+  }
+
   /// 设置歌词省电模式开关并持久化。
   /// 开启后歌词界面锁定 60fps，用户上下滑动歌词时临时解锁帧率限制。
   Future<void> setEcoMode(bool enabled) async {
@@ -544,6 +676,57 @@ class LyricPreferences extends ChangeNotifier {
     _glowThresholdFactor = clamped;
     notifyListeners();
     await backend.setDouble(_keyGlowThresholdFactor, _glowThresholdFactor);
+  }
+
+  /// 设置辉光强度倍数并持久化。
+  ///
+  /// 范围 [minGlowIntensity]~[maxGlowIntensity]（默认 [defaultGlowIntensity]=1.0）。
+  /// 只调亮度、不改光形：超过 1.0 的部分以加法叠加，剖面半径不变。
+  Future<void> setGlowIntensity(double value) async {
+    final clamped = value.clamp(minGlowIntensity, maxGlowIntensity);
+    if (clamped == _glowIntensity) return;
+    _glowIntensity = clamped;
+    notifyListeners();
+    await backend.setDouble(_keyGlowIntensity, _glowIntensity);
+  }
+
+  /// 设置辉光字符缩放开关并持久化。
+  ///
+  /// 关闭只停掉强调字的放大与水平外扩，上浮 / 正弦浮层 / 辉光亮度照常。
+  Future<void> setUseGlowCharScale(bool enabled) async {
+    if (_glowCharScale == enabled) return;
+    _glowCharScale = enabled;
+    notifyListeners();
+    await backend.setBool(_keyGlowCharScale, enabled);
+  }
+
+  /// 设置辉光触发判定模式并持久化。
+  Future<void> setGlowThresholdMode(GlowThresholdMode mode) async {
+    if (_glowThresholdMode == mode) return;
+    _glowThresholdMode = mode;
+    notifyListeners();
+    await backend.setString(_keyGlowThresholdMode, mode.name);
+  }
+
+  /// 设置辉光固定时长判定阈值并持久化。
+  ///
+  /// 范围 [minGlowFixedThresholdMs]~[maxGlowFixedThresholdMs]
+  /// （默认 [defaultGlowFixedThresholdMs]=1000）。仅 fixed 判定模式生效。
+  Future<void> setGlowFixedThresholdMs(double value) async {
+    final clamped =
+        value.clamp(minGlowFixedThresholdMs, maxGlowFixedThresholdMs);
+    if (clamped == _glowFixedThresholdMs) return;
+    _glowFixedThresholdMs = clamped;
+    notifyListeners();
+    await backend.setDouble(_keyGlowFixedThresholdMs, _glowFixedThresholdMs);
+  }
+
+  /// 设置字内渐变（扫光）模型并持久化。
+  Future<void> setFillMode(LyricFillMode mode) async {
+    if (_fillMode == mode) return;
+    _fillMode = mode;
+    notifyListeners();
+    await backend.setString(_keyFillMode, mode.name);
   }
 
   /// 设置非当前行缩放并持久化。
@@ -707,6 +890,16 @@ class LyricPreferences extends ChangeNotifier {
     return name == 'roma' ? LyricDisplayMode.roma : LyricDisplayMode.translation;
   }
 
+  static LyricFillMode _fillModeFromName(String? name) {
+    return name == 'classic' ? LyricFillMode.classic : LyricFillMode.sweep;
+  }
+
+  static GlowThresholdMode _glowThresholdModeFromName(String? name) {
+    return name == 'adaptive'
+        ? GlowThresholdMode.adaptive
+        : GlowThresholdMode.fixed;
+  }
+
   /// 重置为默认值（按设备类型：手机 / Pad 差异化默认）。
   Future<void> reset() async {
     _fontSize = _deviceDefaultFontSize;
@@ -715,8 +908,11 @@ class LyricPreferences extends ChangeNotifier {
     _useGaussianBlur = false;
     _blurIntensity = defaultBlurIntensity;
     _useGlowEffect = true;
+    _glowIntensity = defaultGlowIntensity;
+    _glowCharScale = defaultGlowCharScale;
     _useFlowingBackground = false;
     _useDuetLayout = false;
+    _lineBalance = true;
     _showTranslation = true;
     _displayMode = LyricDisplayMode.translation;
     _fontSource = LyricFontSource.system;
@@ -725,6 +921,9 @@ class LyricPreferences extends ChangeNotifier {
     _ecoMode = true;
     _useDynamicLyricColor = true;
     _glowThresholdFactor = defaultGlowThresholdFactor;
+    _glowThresholdMode = GlowThresholdMode.fixed;
+    _glowFixedThresholdMs = defaultGlowFixedThresholdMs;
+    _fillMode = LyricFillMode.sweep;
     _inactiveScale = defaultInactiveScale;
     _alignPosition = defaultAlignPosition;
     _cascadeMaxDelayMs = defaultCascadeMaxDelayMs;
@@ -741,11 +940,17 @@ class LyricPreferences extends ChangeNotifier {
     await backend.setBool(_keyUseGlowEffect, _useGlowEffect);
     await backend.setBool(_keyUseFlowingBackground, _useFlowingBackground);
     await backend.setBool(_keyUseDuetLayout, _useDuetLayout);
+    await backend.setBool(_keyLineBalance, _lineBalance);
     await backend.setBool(_keyShowTranslation, _showTranslation);
     await backend.setString(_keyDisplayMode, _displayMode.name);
     await backend.remove(_keyEcoMode);
     await backend.remove(_keyUseDynamicLyricColor);
     await backend.remove(_keyGlowThresholdFactor);
+    await backend.remove(_keyGlowThresholdMode);
+    await backend.remove(_keyGlowFixedThresholdMs);
+    await backend.remove(_keyGlowIntensity);
+    await backend.remove(_keyGlowCharScale);
+    await backend.remove(_keyFillMode);
     await backend.remove(_keyInactiveScale);
     await backend.remove(_keyAlignPosition);
     await backend.remove(_keyCascadeMaxDelayMs);

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import 'package:flutter_amll/src/models/lyric_line.dart';
+import 'package:flutter_amll/src/utils/lyric_wrap_plan.dart';
 import 'lyric_preferences.dart';
 
 /// Apple Music 风格歌词布局常量
@@ -84,10 +85,35 @@ class LyricLayout {
     return w > 0 ? w : 0;
   }
 
+  /// 按视觉行数算主文本高度（换行行按 [wrapLineHeightFactor] 压缩）。
+  ///
+  /// 这是「测量」侧唯一的行高公式：行数一律来自 `LyricWrapPlan.rowCount`，
+  /// 不再由测量方自己数一遍（历史上测量与绘制各数各的，导致过歌词重叠）。
+  static double lineHeightForRows(double mainLineHeight, int rowCount) =>
+      rowCount <= 1
+      ? mainLineHeight
+      : mainLineHeight + (rowCount - 1) * mainLineHeight * wrapLineHeightFactor;
+
+  /// 主行测量样式：必须与各 renderer 绘制主行时用的样式逐字段一致，
+  /// 否则测出的断点与画出的断点会岔开。颜色不参与宽度，故不带 color。
+  static TextStyle mainStyle(double fontSize) => TextStyle(
+    fontSize: fontSize,
+    height: lineHeight,
+    fontFamily: fontFamily,
+    fontWeight: fontWeight,
+  );
+
+  /// 副行（翻译/罗马音）测量样式，口径同 [mainStyle]。
+  static TextStyle auxStyle(double fontSize) => TextStyle(
+    fontSize: translationFontSize(fontSize),
+    height: translationLineHeight,
+    fontFamily: fontFamily,
+    fontWeight: fontWeight,
+  );
+
   /// 测量指定行在视口宽度内实际占用的总高度（含自动换行）。
   ///
-  /// - 无 word 时间戳：用 [TextPainter] 对整行 text 自动换行测量。
-  /// - 有 word 时间戳：按 word 累加 dx 超过 [maxWidth] 即换行。
+  /// 行数一律由 `LyricWrapPlanner` 的换行计划给出，测量方不再自行数行。
   ///
   /// [showTranslation] 为 true 时，把副行高度（[auxSubHeight]，按副行实际视觉行数
   /// 计算，含 0.3em 间隙）追加到返回值。调用方应仅对当前行
@@ -103,47 +129,14 @@ class LyricLayout {
   }) {
     if (maxWidth <= 0 || line.text.isEmpty) return mainLineHeight;
 
-    double mainHeight;
-    if (line.words.isEmpty) {
-      // 纯文本行：用 TextPainter 自动换行
-      final painter = TextPainter(
-        text: TextSpan(
-          text: line.text,
-          // 显式注入歌词 fontFamily，必须与 line_renderer 渲染路径一致，
-          // 否则行高测量与实际渲染不匹配会导致跳动
-          style: TextStyle(fontSize: fontSize, height: lineHeight, fontFamily: fontFamily, fontWeight: fontWeight),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: maxWidth);
-      final lineCount = painter.computeLineMetrics().length;
-      mainHeight = lineCount <= 1
-          ? mainLineHeight
-          : mainLineHeight +
-              (lineCount - 1) * mainLineHeight * wrapLineHeightFactor;
-    } else {
-      // 逐字行：按 word 累加，超宽即换行
-      double dx = 0;
-      int rowCount = 1;
-      for (final word in line.words) {
-        final painter = TextPainter(
-          text: TextSpan(
-            text: word.text,
-            // 显式注入歌词 fontFamily，必须与 word_renderer 测量路径一致
-            style: TextStyle(fontSize: fontSize, height: lineHeight, fontFamily: fontFamily, fontWeight: fontWeight),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        if (dx + painter.width > maxWidth && dx > 0) {
-          dx = 0;
-          rowCount++;
-        }
-        dx += painter.width;
-      }
-      mainHeight = rowCount <= 1
-          ? mainLineHeight
-          : mainLineHeight +
-              (rowCount - 1) * mainLineHeight * wrapLineHeightFactor;
-    }
+    // 行数只认换行计划：与 WordRenderer / LineRenderer / 模糊层读同一份断点
+    final LyricWrapPlan plan = LyricWrapPlanner.forLine(
+      line,
+      mainStyle(fontSize),
+      maxWidth,
+      balanced: LyricPreferences.instance.lineBalance,
+    );
+    double mainHeight = lineHeightForRows(mainLineHeight, plan.rowCount);
 
     // 副行高度：按 displayMode 预留翻译或罗马音（与 renderer 绘制逻辑对齐——
     // 只音译无翻译的歌（粤语等）罗马音同样预留空间，否则副行会与下一行重叠）。
@@ -194,32 +187,17 @@ class LyricLayout {
 
   /// 测量副行文本在 [maxWidth] 内的视觉行数（无副行文本 → 0）。
   ///
-  /// 与 renderer 绘制副行所用的 [TextPainter] 完全同 style（0.7em 字号、
-  /// height = [translationLineHeight]、同 [fontFamily]/[fontWeight]），
-  /// 保证测量行数与实际绘制的换行结果一致。
+  /// 行数一律由 `LyricWrapPlanner` 的换行计划给出，测量方不再自行数行；
+  /// 样式口径见 [auxStyle]（与 renderer 绘制副行所用的样式一致）。
   static int measureAuxRows(String? auxText, double fontSize, double maxWidth) {
     if (auxText == null || auxText.isEmpty) return 0;
-    final trans = translationFontSize(fontSize);
-    final painter = TextPainter(
-      text: TextSpan(
-        text: auxText,
-        style: TextStyle(
-          fontSize: trans,
-          height: translationLineHeight,
-          fontFamily: fontFamily,
-          fontWeight: fontWeight,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
+    final LyricWrapPlan plan = LyricWrapPlanner.forText(
+      auxText,
+      auxStyle(fontSize),
+      maxWidth,
+      balanced: LyricPreferences.instance.lineBalance,
     );
-    if (maxWidth.isFinite && maxWidth > 0) {
-      painter.layout(maxWidth: maxWidth);
-    } else {
-      painter.layout();
-    }
-    final int rows = painter.computeLineMetrics().length;
-    painter.dispose();
-    return rows < 1 ? 1 : rows;
+    return plan.rowCount < 1 ? 1 : plan.rowCount;
   }
 
   /// 副行透明度

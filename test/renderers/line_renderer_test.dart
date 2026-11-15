@@ -3,9 +3,12 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_amll/src/layout/duet_layout.dart';
 import 'package:flutter_amll/src/layout/lyric_layout.dart';
+import 'package:flutter_amll/src/layout/lyric_preferences.dart';
 import 'package:flutter_amll/src/models/lyric_line.dart';
 import 'package:flutter_amll/src/renderers/line_renderer.dart';
+import 'package:flutter_amll/src/utils/lyric_wrap_plan.dart';
 
 /// LineRenderer 单元测试
 ///
@@ -432,13 +435,77 @@ void main() {
         closeTo(mainLineHeight, 1e-6),
         reason: 'KRC 行第 2 行也应从主行底开始',
       );
-      // 关键断言：与 WordRenderer 当前行行数一致（此处用 word 累加行数直接断言）
-      final int wordRows = _wordAccumulateForTest(krcLine, 15, 90);
+      // 关键断言：渲染行数必须等于「换行计划」行数——测量与绘制同源，
+      // 不再复刻任何一份贪心公式（换行算法变更时这里不需要跟着改）。
+      final int planRows = LyricWrapPlanner.forLine(
+        krcLine,
+        LyricLayout.mainStyle(15),
+        90,
+        balanced: LyricPreferences.instance.lineBalance,
+      ).rowCount;
       expect(
         ys.length,
-        wordRows,
-        reason: 'LineRenderer 非当前行行数必须等于 word 累加行数（当前行/测量）',
+        planRows,
+        reason: 'LineRenderer 非当前行行数必须等于换行计划行数（当前行/测量同源）',
       );
+    });
+
+    test('整行绘制的分组与对齐宽度必须等于换行计划', () {
+      // 7 个单字 word，Ahem 15/字，maxWidth=55 → DP 分组 [2,2,3]（rowStarts [0,2,4]），贪心 [3,3,1]
+      const seven = LyricLine(
+        startTime: 0,
+        duration: 4000,
+        text: '一二三四五六七',
+        words: [
+          LyricWord(startTime: 0, duration: 100, text: '一'),
+          LyricWord(startTime: 100, duration: 100, text: '二'),
+          LyricWord(startTime: 200, duration: 100, text: '三'),
+          LyricWord(startTime: 300, duration: 100, text: '四'),
+          LyricWord(startTime: 400, duration: 100, text: '五'),
+          LyricWord(startTime: 500, duration: 100, text: '六'),
+          LyricWord(startTime: 600, duration: 100, text: '七'),
+        ],
+      );
+      const fontSize = 15.0;
+      const maxWidth = 55.0;
+      const viewportWidth = 200.0;
+      final plan = LyricWrapPlanner.forLine(
+        seven,
+        LyricLayout.mainStyle(fontSize),
+        maxWidth,
+        balanced: true,
+      );
+      expect(plan.rowStarts, <int>[0, 2, 4]);
+
+      renderer.setLineState(isActive: true, scale: LyricLayout.activeScale);
+      final canvas = RecordingCanvas();
+      renderer.paintLine(
+        canvas,
+        ui.Offset.zero,
+        seven,
+        fontSize,
+        maxWidth: maxWidth,
+        alignment: DuetAlignment.center,
+        viewportWidth: viewportWidth,
+      );
+
+      // 每视觉行一个 drawParagraph：行数与绘制起点都要跟计划走
+      final ys = canvas.drawParagraphOffsets.map((o) => o.dy).toList();
+      final xs = canvas.drawParagraphOffsets.map((o) => o.dx).toList();
+      expect(ys.length, plan.rowCount);
+      final mainLineHeight = fontSize * LyricLayout.lineHeight;
+      final wrapLineHeight = mainLineHeight * LyricLayout.wrapLineHeightFactor;
+      expect(ys[0], closeTo(0, 1e-6));
+      expect(ys[1], closeTo(mainLineHeight, 1e-6));
+      expect(ys[2], closeTo(mainLineHeight + wrapLineHeight, 1e-6));
+      // 居中锚点用「计划里的行宽」算：分组错一行，x 就对不上
+      for (int r = 0; r < plan.rowCount; r++) {
+        expect(
+          xs[r],
+          closeTo((viewportWidth - plan.rowWidths[r]) / 2, 0.5),
+          reason: '第 $r 行应按计划行宽居中，实际行宽来自贪心残留',
+        );
+      }
     });
   });
 
@@ -672,28 +739,6 @@ void main() {
       );
     });
   });
-}
-
-/// 测试用：复刻 measureLineHeight 的 word 累加行数计算（与渲染一致）。
-int _wordAccumulateForTest(LyricLine line, double fontSize, double maxWidth) {
-  double dx = 0;
-  int rows = 1;
-  for (final w in line.words) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: w.text,
-        style: TextStyle(fontSize: fontSize, height: LyricLayout.lineHeight),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final ww = tp.width;
-    if (dx + ww > maxWidth && dx > 0) {
-      dx = 0;
-      rows++;
-    }
-    dx += ww;
-  }
-  return rows;
 }
 
 /// 记录 [ui.Canvas.drawParagraph] 位置与画布变换的测试画布（其余方法走 noSuchMethod 兜底）。

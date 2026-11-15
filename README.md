@@ -17,18 +17,18 @@ flutter_amll/
 ├── lib/
 │   ├── flutter_amll.dart          # 公开 API 门面（唯一推荐导入入口）
 │   └── src/
-│       ├── apple_lyrics_view.dart # AppleLyricsView 主组件（3376 行）
+│       ├── apple_lyrics_view.dart # AppleLyricsView 主组件（3378 行）
 │       ├── animation/spring.dart  # 弹簧物理引擎（临界/欠/过阻尼解析解）
 │       ├── controllers/           # lyric_scroll_controller / line_scale_controller
 │       ├── layout/                # lyric_layout / duet_layout / lyric_preferences(_panel)
 │       ├── models/lyric_line.dart # LyricLine / LyricWord 统一歌词模型
 │       ├── parsers/               # krc / lrc / ttml / plaintext + lyric_parser_chain
-│       ├── renderers/             # word_renderer / line_renderer / emphasize_effect / interlude_dots
-│       ├── utils/lyric_position.dart
+│       ├── renderers/             # word_renderer / line_renderer / emphasize_effect / interlude_dots / lyric_sweep_fill
+│       ├── utils/                  # lyric_position / lyric_line_balance / lyric_wrap_plan
 │       ├── platform/              # frame_driver / haptics / font_loader / toast（4 个宿主注入点）
 │       └── storage/lyric_preferences_backend.dart
 ├── example/                       # demo app：歌词预览调试页
-└── test/                          # 22 个测试（与源仓库一一对应）
+└── test/                          # 31 个测试（与源仓库一一对应）
 ```
 
 依赖：`flutter`、`m3e_core ^1.1.4`、`material_ui ^1.3.0`、`shared_preferences ^2.5.0`、`xml ^6.5.0`（TTML）。
@@ -129,13 +129,19 @@ AppleLyricsView(
 | `useGlowEffect` | `true` | bool | 当前行辉光强调 |
 | `useFlowingBackground` | `false` | bool | 流动背景 |
 | `useDuetLayout` | `false` | bool | 对唱布局（按 TTML agentId 左右分列） |
+| `lineBalance` | `true` | bool | 平衡行换行：长行用 DP 求均衡断点，关闭则退回旧贪心 |
 | `showTranslation` | `true` | bool | 是否显示副行 |
 | `displayMode` | `translation` | `translation` / `roma` | 副行显示翻译还是罗马音 |
 | `fontSource` | `system` | `system` / `bundled`(废弃) / `custom` | 歌词字体来源 |
 | `customFontPath` | `null` | 路径字符串 | 自定义 TTF/OTF 文件路径 |
 | `ecoMode` | `true` | bool | 歌词界面锁定 60fps（滑动时临时解锁） |
 | `useDynamicLyricColor` | `true` | bool | 当前行按「70% 白 + 30% 封面提取色」混色 |
-| `glowThresholdFactor` | `1.2` | 1.0 ~ 2.0 | 辉光触发阈值 = 字长中位数 × 本系数 |
+| `fillMode` | `sweep` | `classic` / `sweep` | 字内渐变模型：扫光（墨迹推进 + 自适应羽化）/ 原宽过渡带 |
+| `glowIntensity` | `1.0` | 0.2 ~ 2.0 | 辉光强度倍数（只调亮度；>1.0 走加法叠加，不改光形） |
+| `useGlowCharScale` | `true` | bool | 辉光字符缩放：关闭只停放大与左右外扩，保留上浮/浮层/辉光 |
+| `glowThresholdMode` | `fixed` | `adaptive` / `fixed` | 辉光触发判定：固定时长 / 按 BPM·字长自适应 |
+| `glowFixedThresholdMs` | `1000` | 500 ~ 2000 ms | 固定时长判定阈值（仅 fixed 生效） |
+| `glowThresholdFactor` | `1.2` | 1.0 ~ 2.0 | 自适应判定：触发阈值 = 字长中位数 × 本系数 |
 | `inactiveScale` | `0.850` | 0.80 ~ 1.00（40 档） | 非当前行缩放（清晰层与模糊层共用，保证重合） |
 | `alignPosition` | `0.35` | 0.15 ~ 0.65（50 档） | 当前行中心在视口高度的比例位置 |
 | `cascadeMaxDelayMs` | `750` | 100 ~ 2000 ms | 级联错峰最大延迟 |
@@ -144,7 +150,7 @@ AppleLyricsView(
 | `liftHeightPx` | `3.0` | 0 ~ 10 px | 已播字上浮高度 |
 | `staggerFromCurrentLine` | `true` | bool | 错峰起点：当前行（`true`）/ 视口顶部（历史行为） |
 
-持久化 key：`lyric_font_size` `lyric_line_spacing` `lyric_font_weight` `lyric_use_gaussian_blur` `lyric_blur_intensity` `lyric_use_glow_effect` `lyric_use_flowing_background` `lyric_font_source` `lyric_custom_font_path` `lyric_show_translation` `lyric_display_mode` `lyric_use_duet_layout` `lyric_eco_mode` `lyric_dynamic_color` `lyric_glow_threshold_factor` `lyric_inactive_scale` `lyric_align_position` `lyric_cascade_max_delay_ms` `lyric_cascade_base_step_ms` `lyric_cascade_decay_x` `lyric_lift_height_px` `lyric_stagger_from_current`。
+持久化 key：`lyric_font_size` `lyric_line_spacing` `lyric_font_weight` `lyric_use_gaussian_blur` `lyric_blur_intensity` `lyric_use_glow_effect` `lyric_use_flowing_background` `lyric_font_source` `lyric_custom_font_path` `lyric_show_translation` `lyric_display_mode` `lyric_use_duet_layout` `lyric_line_balance` `lyric_eco_mode` `lyric_dynamic_color` `lyric_glow_threshold_factor` `lyric_glow_threshold_mode` `lyric_glow_fixed_threshold_ms` `lyric_glow_intensity` `lyric_glow_char_scale` `lyric_fill_mode` `lyric_inactive_scale` `lyric_align_position` `lyric_cascade_max_delay_ms` `lyric_cascade_base_step_ms` `lyric_cascade_decay_x` `lyric_lift_height_px` `lyric_stagger_from_current`。
 
 ### `AppleLyricsView` 构造参数
 
@@ -180,6 +186,9 @@ AppleLyricsView(
 - **`playbackNotReady` 时钟冻结**：避免「帧时钟前进 → 兜底回吸」锯齿循环
 - **辉光阈值自适应**：BPM 优先，回落字长中位数统计
 - **间奏行节奏点**、**对唱（duet）布局**、**已播字上浮**、**级联错峰**
+- **平衡行换行**：长行断点由 `LyricWrapPlanner`（DP 最优化，移植 AMLL `calcBalancedBreaks`）统一产出，行高测量 / 逐字绘制 / 整行绘制 / 模糊层四处消费同一份计划，消除「第二行只剩两三个字」并结构性杜绝测量与绘制行数不一致导致的重叠
+- **扫光（sweep）字内渐变**：前端沿「墨迹长度」推进（字间空白瞬时跨越），羽化宽度按字宽 + 时长自适应；`classic` 为原「行内累计宽度 maskX + 固定过渡半宽」模型，二者由 `fillMode` 二选一
+- **辉光三层剖面**：紧 / 中 / 松三层高斯叠加（字形最亮、向外单调递减，不挖空字形），2× 超采样烘焙精灵、绘制期 `ColorFilter` 上色（换色不重烘焙），并按字数内进度前沿逐段点亮
 - **动态字体颜色**、**Pad/手机差异化默认值**（最短边 ≥600dp 判为 Pad）
 
 ---

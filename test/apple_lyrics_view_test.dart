@@ -954,4 +954,70 @@ void main() {
           reason: '罗马音模式：过长 roma 必须按换行行数重新预留');
     });
   });
+  group('AppleLyricsView sweep（扫光）字内渐变', () {
+    testWidgets('sweep 模式下 sweepFrontDebug 非负且随进度推进', (tester) async {
+      // 偏好置 sweep（现为默认，classic 分支断言见其它用例，互不影响）
+      _useCleanLyricPreferences(<String, Object?>{'lyric_fill_mode': 'sweep'});
+      await LyricPreferences.instance.load();
+      addTearDown(() => LyricPreferences.instance.reset());
+      expect(LyricPreferences.instance.fillMode, LyricFillMode.sweep);
+
+      tester.view.physicalSize = const Size(400, 600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final lines = <LyricLine>[
+        LyricLine(
+          startTime: 0,
+          duration: 4000,
+          text: '扫光测试',
+          words: const [
+            LyricWord(startTime: 0, duration: 1000, text: '扫'),
+            LyricWord(startTime: 1000, duration: 1000, text: '光'),
+            LyricWord(startTime: 2000, duration: 1000, text: '测'),
+            LyricWord(startTime: 3000, duration: 1000, text: '试'),
+          ],
+        ),
+        // 第二行只为让 `hasTimestamps`（any startTime > 0）成立——
+        // 全行 startTime=0 时 AppleLyricsView 视作纯文本、不启用 WordRenderer。
+        const LyricLine(startTime: 4000, duration: 2000, text: '第二行'),
+      ];
+
+      Widget build(int timeMs) => MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 400,
+                height: 600,
+                child: AppleLyricsView(
+                  lines: lines,
+                  currentTimeMs: timeMs,
+                  isPlaying: true,
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(build(500));
+      // 多泵几帧：Ticker 首帧 dt=0 不推进，且渲染器在 _onTick 的渲染循环里创建
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      final state = tester.state(find.byType(AppleLyricsView)) as dynamic;
+      final double early = state.sweepFrontForTest(0) as double;
+      expect(early.isNaN, isFalse, reason: '当前行应已绘制并记录 sweep 前端');
+      expect(early, greaterThanOrEqualTo(0));
+
+      // 推进到第 3 个字（权威时间跳变 > 500ms 会吸附，相位随之前进）
+      await tester.pumpWidget(build(2500));
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      final double later = state.sweepFrontForTest(0) as double;
+      expect(later, greaterThanOrEqualTo(0));
+      expect(later, greaterThan(early), reason: '扫光前端应随播放进度向右推进');
+    });
+  });
 }

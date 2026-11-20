@@ -151,7 +151,7 @@ AppleLyricsView(
 | `glowThresholdMode` | `fixed` | `adaptive` / `fixed` | 辉光触发判定：固定时长 / 按 BPM·字长自适应 |
 | `glowFixedThresholdMs` | `1000` | 500 ~ 2000 ms | 固定时长判定阈值（仅 fixed 生效） |
 | `glowThresholdFactor` | `1.2` | 1.0 ~ 2.0 | 自适应判定：触发阈值 = 字长中位数 × 本系数 |
-| `inactiveScale` | `0.850` | 0.80 ~ 1.00（40 档） | 非当前行缩放（清晰层与模糊层共用，保证重合） |
+| `inactiveScale` | Windows `0.60` / 其余 `0.850` | Windows·Android 0 ~ 1.00，其余 0.80 ~ 1.00（40 档） | 非当前行缩放（清晰层与模糊层共用，保证重合） |
 | `alignPosition` | `0.35` | 0.15 ~ 0.65（50 档） | 当前行中心在视口高度的比例位置 |
 | `cascadeMaxDelayMs` | `750` | 100 ~ 2000 ms | 级联错峰最大延迟 |
 | `cascadeBaseStepMs` | `60` | 20 ~ 200 ms | 级联错峰相邻行步长 |
@@ -170,6 +170,8 @@ AppleLyricsView(
 | `hideLyricCredits` | `false` | bool | 过滤在线歌词头部的作词/作曲/编曲等元信息块 |
 | `playedOpacity` / `unplayedOpacity` | 平台默认* | 平台范围* | 已播 / 未播歌词透明度，分别作用于清晰层与模糊层 |
 | `dynamicColorMixRatio` | `0.15`* | 0.0 ~ 1.0（Windows 上限 0.30）* | 当前行已播色与封面提取色的混色比例 |
+| `fillStyle` | `lineUniform` | `lineUniform` / `wordGradient` | 动态颜色赋色方式：整行统一混色（历史行为）/ 字内渐变未播端用封面原色、已播端过曝成白；仅动态颜色开启时生效 |
+| `gradientFillRatio` | `0.5` | 0.0 ~ 1.0 | 渐变赋色过曝轨迹的取色浓度（0 = 纯白光核，1 = 原取色）；未播区仍保持原有混色 |
 | `useAboveLinesPlayedColor` | `false`* | bool | 当前行上方行是否也用「已播色」着色（合成期 `ColorFilter`，不重烘焙模糊图） |
 | `blurLevelCrossfade` / `blurLevelFadeMs` | 平台默认* | bool / ms | 切行时模糊等级渐变切换开关与时长 |
 | `earlyLineSwitch` / `preStartBiasMs` | 平台默认* | bool / ms | 提前换行动画开关与预启动提前量微调 |
@@ -177,7 +179,7 @@ AppleLyricsView(
 | `cascadeStepDecay` | 平台默认* | 系数 | 级联错峰步长衰减 |
 | `interludeDotsStartX` / `interludeDotRadius` / `interludeDotSpacing` | 平台默认* | × 字号 | 间奏点水平起点、半径、间距的自定义参数 |
 
-持久化 key：`lyric_font_size` `lyric_line_spacing` `lyric_font_weight` `lyric_use_gaussian_blur` `lyric_blur_intensity` `lyric_blur_level_crossfade` `lyric_blur_level_fade_ms` `lyric_entry_blur_fade_ms` `lyric_early_line_switch` `lyric_use_glow_effect` `lyric_glow_intensity` `lyric_glow_char_scale` `lyric_soft_edge_antialias` `lyric_use_flowing_background` `lyric_use_duet_layout` `lyric_position` `lyric_line_balance` `lyric_show_translation` `lyric_display_mode` `lyric_aux_scope` `lyric_hide_credits` `lyric_credit_pattern` `lyric_font_source` `lyric_custom_font_path` `lyric_custom_text_color` `lyric_eco_mode` `lyric_dynamic_color` `lyric_dynamic_color_mix_ratio` `lyric_above_lines_played_color` `lyric_played_opacity` `lyric_unplayed_opacity` `lyric_glow_threshold_factor` `lyric_glow_threshold_mode` `lyric_glow_fixed_threshold_ms` `lyric_fill_mode` `lyric_inactive_scale` `lyric_align_position` `lyric_cascade_max_delay_ms` `lyric_cascade_base_step_ms` `lyric_cascade_decay_x` `lyric_prestart_bias_ms` `lyric_lift_height_px` `lyric_stagger_from_current` `lyric_interlude_dots_start_x` `lyric_interlude_dot_radius` `lyric_interlude_dot_spacing`。
+持久化 key：`lyric_font_size` `lyric_line_spacing` `lyric_font_weight` `lyric_use_gaussian_blur` `lyric_blur_intensity` `lyric_blur_level_crossfade` `lyric_blur_level_fade_ms` `lyric_entry_blur_fade_ms` `lyric_early_line_switch` `lyric_use_glow_effect` `lyric_glow_intensity` `lyric_glow_char_scale` `lyric_soft_edge_antialias` `lyric_use_flowing_background` `lyric_use_duet_layout` `lyric_position` `lyric_line_balance` `lyric_show_translation` `lyric_display_mode` `lyric_aux_scope` `lyric_hide_credits` `lyric_credit_pattern` `lyric_font_source` `lyric_custom_font_path` `lyric_custom_text_color` `lyric_eco_mode` `lyric_dynamic_color` `lyric_dynamic_color_mix_ratio` `lyric_above_lines_played_color` `lyric_played_opacity` `lyric_unplayed_opacity` `lyric_glow_threshold_factor` `lyric_glow_threshold_mode` `lyric_glow_fixed_threshold_ms` `lyric_fill_mode` `lyric_fill_style` `lyric_gradient_fill_ratio` `lyric_inactive_scale` `lyric_align_position` `lyric_cascade_max_delay_ms` `lyric_cascade_base_step_ms` `lyric_cascade_decay_x` `lyric_prestart_bias_ms` `lyric_lift_height_px` `lyric_stagger_from_current` `lyric_interlude_dots_start_x` `lyric_interlude_dot_radius` `lyric_interlude_dot_spacing`。
 
 ### `AppleLyricsView` 构造参数
 
@@ -215,6 +217,7 @@ AppleLyricsView(
 - **间奏行节奏点**、**对唱（duet）布局**、**已播字上浮**、**级联错峰**
 - **平衡行换行**：长行断点由 `LyricWrapPlanner`（DP 最优化，移植 AMLL `calcBalancedBreaks`）统一产出，行高测量 / 逐字绘制 / 整行绘制 / 模糊层四处消费同一份计划，消除「第二行只剩两三个字」并结构性杜绝测量与绘制行数不一致导致的重叠
 - **扫光（sweep）字内渐变**：前端沿「墨迹长度」推进（字间空白瞬时跨越），羽化宽度按字宽 + 时长自适应；`classic` 为原「行内累计宽度 maskX + 固定过渡半宽」模型，二者由 `fillMode` 二选一
+- **动态赋色方式**：`fillStyle=wordGradient` 时，当前行未播端使用**未混色的封面取色**、已播端过渡到纯白；过曝曲线跨字连贯流动，混白比例由 `gradientFillRatio` 调节（0% 纯白光核 / 50% 默认 / 100% 原取色）。默认 `lineUniform` 保持历史整行混色观感
 - **辉光三层剖面**：紧 / 中 / 松三层高斯叠加（字形最亮、向外单调递减，不挖空字形），2× 超采样烘焙精灵、绘制期 `ColorFilter` 上色（换色不重烘焙），并按字数内进度前沿逐段点亮
 - **动态字体颜色**、**Pad/手机/Windows 差异化默认值**（最短边 ≥600dp 判为 Pad；Windows 便携版另有实调范围与中轴值）
 - **Windows 整词字形图**：3× 超采样预栅格整词白字图 + `FilterQuality.low` 双线性缩回，消除上浮动画的整像素台阶；行盒变化自动重烘焙
@@ -304,11 +307,11 @@ cd example && flutter pub get && flutter run
 ```bash
 flutter pub get
 flutter analyze          # No issues found!
-flutter test             # 764 / 764 passed
+flutter test             # 791 / 791 passed
 cd example && flutter pub get && flutter analyze   # No issues found!
 ```
 
-测试覆盖：弹簧求解、逐字 / 整行渲染器、扫光与三层辉光、柔边抗锯齿、Windows 字形图、副行预栅格、模糊画布合成与烘焙队列、级联错峰、间奏点、四种解析器、布局（副行翻转 / inactiveScale / 模糊强度）、动画预设、滚动控制器、偏好细节参数、位置解耦、设置面板与预览页。
+测试覆盖：弹簧求解、逐字 / 整行渲染器、扫光与三层辉光、动态赋色方式与取色浓度、对唱标记行移除、柔边抗锯齿、Windows 字形图、副行预栅格、模糊画布合成与烘焙队列、级联错峰、间奏点、四种解析器（含 KRC 续行 words 补全）、布局（副行翻转 / inactiveScale / 模糊强度 / 居中对齐修正）、动画预设、滚动控制器、偏好细节参数、位置解耦、设置面板与预览页。
 
 测试侧已与 `shared_preferences` 完全解耦：统一在 `setUp` 中调用 `LyricPreferences.resetForTest()`
 并注入 `MemoryLyricPreferencesBackend`，通过 `values` 快照断言落盘内容。
@@ -324,9 +327,9 @@ cd example && flutter pub get && flutter analyze   # No issues found!
 - 迁移期不做视觉/逻辑重构、不重命名字段、不变更持久化 key；源仓库的产品级默认值翻转未跟进
   （`useGlowEffect` / `lineBalance` / `useDynamicLyricColor` 保持本库既有默认 `true`），
   `ecoMode` 例外：跟随上游新增的按平台 / 刷新率自适应默认
-- 源码中保留了源仓库的两处既有写法以保持行为不变：`TickerMode.of`（Flutter 3.35 后废弃，
-  替代 API `valuesOf` 返回 record、语义不同，暂不迁移）与 `_tryLoadCustomFont` 内的 `print`
-  调试输出；两者以行内 `ignore` 注释消除 analyzer 告警，未改调用方式
+- 源码中保留了源仓库的既有写法以保持行为不变：`TickerMode.of`（Flutter 3.35 后废弃，
+  替代 API `valuesOf` 返回 record、语义不同，暂不迁移）、`_tryLoadCustomFont` 内的 `print`
+  调试输出、辉光精灵取通道用的 `Color.value`；均以行内 `ignore` 注释消除 analyzer 告警，未改调用方式
 - 使用 `dart:io`（自定义字体文件读取），因此不支持 Web 平台
 
 ## License
